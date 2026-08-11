@@ -1,0 +1,416 @@
+fileFormatVersion: 2
+guid: fe7931ed763881344827e8bfe1328211
+TextureImporter:
+  internalIDToNameTable:
+  - first:
+      213: -2918709738361843043
+    second: "St.Patrick\u2019s_Gold_BTN_4_0"
+  - first:
+      213: -2474405556995762399
+    second: "St.Patrick\u2019s_Gold_BTN_4_1"
+  - first:
+      213: 5290507115554931142
+    second: "St.Patrick\u2019s_Gold_BTN_4_2"
+  - first:
+      213: 1960345525482234178
+    second: "St.Patrick\u2019s_Gold_BTN_4_3"
+  - first:
+      213: -1052228440505162520
+    second: "St.Patrick\u2019s_Gold_BTN_4_4"
+  - first:
+      213: -6159013191924405246
+    second: "St.Patrick\u2019s_Gold_BTN_4_5"
+  - first:
+      213: 8429651558646196382
+    second: "St.Patrick\u2019s_Gold_BTN_4_6"
+  - first:
+      213: 3613284086810400413
+    second: "St.Patrick\u2019s_Gold_BTN_4_7"
+  - first:
+      213: -4127745917715617629
+    second: "St.Patrick\u2019s_Gold_BTN_4_8"
+  - first:
+      213: -6379809557475405007
+    second: "St.Patrick\u2019s_Gold_BTN_4_9"
+  externalObjects: {}
+  serializedVersion: 13
+  mipmaps:
+    mipMapMode: 0
+    enableMipMap: 0
+    sRGBTexture: 1
+    linearTexture: 0
+    fadeOut: 0
+    borderMipMap: 0
+    mipMapsPreserveCoverage: 0
+    alphaTestReferenceValue: 0.5
+    mipMapFadeDistanceStart: 1
+    mipMapFadeDistanceEnd: 3
+  bumpmap:
+    convertToNormalMap: 0
+    externalNormalMap: 0
+    heightScale: 0.25
+    normalMapFilter: 0
+    flipGreenChannel: 0
+  isReadable: 0
+  streamingMipmaps: 0
+  streamingMipmapsPriority: 0
+  vTOnly: 0
+  ignoreMipmapLimit: 0
+  grayScaleToAlpha: 0
+  generateCubemap: 6
+  cubemapConvolution: 0
+  seamlessCubemap: 0
+  textureFormat: 1
+  maxTextureSize: 2048
+  textureSettings:
+    serializedVersion: 2
+    filterMode: 1
+    aniso: 1
+    mipBias: 0
+    wrapU: 1
+    wrapV: 1
+    wrapW: 1
+  nPOTScale: 0
+  lightmap: 0
+  compressionQuality: 50
+  spriteMode: 2
+  spriteExtrude: 1
+  spriteMeshType: 1
+  alignment: 0
+  spritePivot: {x: 0.5, y: 0.5}
+  spritePixelsToUnits: 100
+  spriteBorder: {x: 0, y: 0, z: 0, w: 0}
+  spriteGenerateFallbackPhysicsShape: 1
+  alphaUsage: 1
+  alphaIsTransparency: 1
+  spriteTessellationDetail: -1
+  textureType: 8
+  textureShape: 1
+  singleChannelComponent: 0
+  flipbookRows: 1
+  flipbookColumns: 1
+  maxTextureSizeSet: 0
+  compressionQualitySet: 0
+  textureFormatSet: 0
+  ignorePngGamma: 0
+  applyGammaDecoding: 0
+  swizzle: 50462976
+  cookieLightType: 0
+  platformSettings:
+  - serializedVersion: 4
+    buildTarget: DefaultTexturePlatform
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Standalone
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Android
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: WebGL
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: WindowsStoreApps
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  spriteSheet:
+    serializedVersion: 2
+    sprites:
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_0"
+      rect:
+        serializedVersion: 2
+        x: 28
+        y: 536
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: d92187af4f8ae77d0800000000000000
+      internalID: -2918709738361843043
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_1"
+      rect:
+        serializedVersion: 2
+        x: 28
+        y: 408
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 127d301814529add0800000000000000
+      internalID: -2474405556995762399
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_2"
+      rect:
+        serializedVersion: 2
+        x: 28
+        y: 280
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 6c10458f038ab6940800000000000000
+      internalID: 5290507115554931142
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_3"
+      rect:
+        serializedVersion: 2
+        x: 28
+        y: 152
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 241256b7edb843b10800000000000000
+      internalID: 1960345525482234178
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_4"
+      rect:
+        serializedVersion: 2
+        x: 28
+        y: 27
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 8e4602deecbb561f0800000000000000
+      internalID: -1052228440505162520
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_5"
+      rect:
+        serializedVersion: 2
+        x: 156
+        y: 536
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 3a9eacfe54934bf448d3c3d892318725
+      internalID: -6159013191924405246
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_6"
+      rect:
+        serializedVersion: 2
+        x: 156
+        y: 408
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 97cefe76fd7428e4290bfdcdad2a1d27
+      internalID: 8429651558646196382
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_7"
+      rect:
+        serializedVersion: 2
+        x: 156
+        y: 280
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: ae99b27d827f00e44bd7cd954eac6bda
+      internalID: 3613284086810400413
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_8"
+      rect:
+        serializedVersion: 2
+        x: 156
+        y: 152
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 58e4051ddd7e1f64aa2a3407baef29f1
+      internalID: -4127745917715617629
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: "St.Patrick\u2019s_Gold_BTN_4_9"
+      rect:
+        serializedVersion: 2
+        x: 156
+        y: 27
+        width: 105
+        height: 106
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: cd69799669c6893429668c0fdb6590f8
+      internalID: -6379809557475405007
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    outline: []
+    customData: 
+    physicsShape: []
+    bones: []
+    spriteID: 6ad8ce4932f3e1441ae325f51d03fa1e
+    internalID: 0
+    vertices: []
+    indices: 
+    edges: []
+    weights: []
+    secondaryTextures: []
+    spriteCustomMetadata:
+      entries: []
+    nameFileIdTable:
+      "St.Patrick\u2019s_Gold_BTN_4_0": -2918709738361843043
+      "St.Patrick\u2019s_Gold_BTN_4_1": -2474405556995762399
+      "St.Patrick\u2019s_Gold_BTN_4_2": 5290507115554931142
+      "St.Patrick\u2019s_Gold_BTN_4_3": 1960345525482234178
+      "St.Patrick\u2019s_Gold_BTN_4_4": -1052228440505162520
+      "St.Patrick\u2019s_Gold_BTN_4_5": -6159013191924405246
+      "St.Patrick\u2019s_Gold_BTN_4_6": 8429651558646196382
+      "St.Patrick\u2019s_Gold_BTN_4_7": 3613284086810400413
+      "St.Patrick\u2019s_Gold_BTN_4_8": -4127745917715617629
+      "St.Patrick\u2019s_Gold_BTN_4_9": -6379809557475405007
+  mipmapLimitGroupName: 
+  pSDRemoveMatte: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
