@@ -4,26 +4,26 @@ using UnityEngine.UI;
 
 public class ImageAnimation : MonoBehaviour
 {
-	public enum ImageState
+	internal enum ImageState
 	{
 		NONE,
 		PLAYING,
 		PAUSED
 	}
 
-	public static ImageAnimation Instance;
+	internal static ImageAnimation Instance;
 
-	public List<Sprite> textureArray;
+	[SerializeField] internal List<Sprite> textureArray;
 
-	public Image rendererDelegate;
+	[SerializeField] internal Image rendererDelegate;
 
-	public bool useSharedMaterial = true;
+	[SerializeField] internal bool useSharedMaterial = true;
 
-	public bool doLoopAnimation = true;
+	[SerializeField] internal bool doLoopAnimation = true;
 	[SerializeField] private bool StartOnAwake;
 
 	[HideInInspector]
-	public ImageState currentAnimationState;
+	[SerializeField] internal ImageState currentAnimationState;
 
 	private int indexOfTexture;
 
@@ -31,9 +31,9 @@ public class ImageAnimation : MonoBehaviour
 
 	private float delayBetweenAnimation;
 
-	public float AnimationSpeed = 5f;
+	[SerializeField] internal float AnimationSpeed = 5f;
 
-	public float delayBetweenLoop;
+	[SerializeField] internal float delayBetweenLoop;
 
 	private void Awake()
 	{
@@ -75,7 +75,7 @@ public class ImageAnimation : MonoBehaviour
 		}
 	}
 
-	public void StartAnimation()
+	internal void StartAnimation()
 	{
 		indexOfTexture = 0;
 		if (currentAnimationState == ImageState.NONE)
@@ -87,7 +87,7 @@ public class ImageAnimation : MonoBehaviour
 		}
 	}
 
-	public void PauseAnimation()
+	internal void PauseAnimation()
 	{
 		if (currentAnimationState == ImageState.PLAYING)
 		{
@@ -96,7 +96,7 @@ public class ImageAnimation : MonoBehaviour
 		}
 	}
 
-	public void ResumeAnimation()
+	internal void ResumeAnimation()
 	{
 		if (currentAnimationState == ImageState.PAUSED && !IsInvoking("AnimationProcess"))
 		{
@@ -105,7 +105,7 @@ public class ImageAnimation : MonoBehaviour
 		}
 	}
 
-	public void StopAnimation()
+	internal void StopAnimation()
 	{
 		if (currentAnimationState != 0)
 		{
@@ -115,7 +115,7 @@ public class ImageAnimation : MonoBehaviour
 		}
 	}
 
-	public void RevertToInitialState()
+	internal void RevertToInitialState()
 	{
 		indexOfTexture = 0;
 		SetTextureOfIndex();

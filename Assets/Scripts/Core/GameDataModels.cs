@@ -431,6 +431,98 @@ public class PlayerData
     public int currentBetIndex;
 }
 
+/// <summary>
+/// Runtime-only game data populated from server initialization, spin results,
+/// balance synchronization and player bet selection. This type is deliberately
+/// not serializable so authoritative values can never be edited in a Unity
+/// Inspector.
+/// </summary>
+public sealed class GameRuntimeData
+{
+    public bool IsInitialized { get; private set; }
+    public bool InitializationFailed { get; private set; }
+    public PlayerData Player { get; private set; } = new PlayerData();
+    public GameConfig Config { get; private set; } = new GameConfig();
+    public int CurrentBetIndex { get; private set; }
+    public double CurrentBetAmount { get; private set; }
+    public double DisplayedBalance { get; private set; }
+
+    public bool ApplyInitialization(GameConfig config, PlayerData player)
+    {
+        bool valid = config != null && player != null &&
+            config.availableBets != null && config.availableBets.Count > 0;
+
+        Config = config ?? new GameConfig();
+        Player = player ?? new PlayerData();
+        IsInitialized = valid;
+        InitializationFailed = !valid;
+
+        if (!valid)
+        {
+            CurrentBetIndex = 0;
+            CurrentBetAmount = 0d;
+            DisplayedBalance = Math.Max(0d, Player.balance);
+            return false;
+        }
+
+        CurrentBetIndex = Math.Max(0, Math.Min(Player.currentBetIndex, Config.availableBets.Count - 1));
+        Player.currentBetIndex = CurrentBetIndex;
+        CurrentBetAmount = Config.availableBets[CurrentBetIndex];
+        DisplayedBalance = Math.Max(0d, Player.balance);
+        return true;
+    }
+
+    public void MarkInitializationFailed()
+    {
+        IsInitialized = false;
+        InitializationFailed = true;
+    }
+
+    public bool SelectBet(int betIndex)
+    {
+        if (Config?.availableBets == null || Config.availableBets.Count == 0)
+        {
+            return false;
+        }
+
+        CurrentBetIndex = Math.Max(0, Math.Min(betIndex, Config.availableBets.Count - 1));
+        CurrentBetAmount = Config.availableBets[CurrentBetIndex];
+        Player.currentBetIndex = CurrentBetIndex;
+        return true;
+    }
+
+    public void ShowOptimisticBalance(double totalBet)
+    {
+        DisplayedBalance = Math.Max(0d, Player.balance - Math.Max(0d, totalBet));
+    }
+
+    public void ApplySpinResult(SpinResult result)
+    {
+        if (result?.playerData == null)
+        {
+            return;
+        }
+
+        Player = result.playerData;
+        Player.currentBetIndex = CurrentBetIndex;
+        DisplayedBalance = Math.Max(0d, Player.balance);
+    }
+
+    public void SynchronizeBalance(double balance, bool updateDisplayedBalance)
+    {
+        Player.balance = Math.Max(0d, balance);
+        if (updateDisplayedBalance)
+        {
+            DisplayedBalance = Player.balance;
+        }
+    }
+
+    public void RestoreAuthoritativeBalance()
+    {
+        DisplayedBalance = Math.Max(0d, Player.balance);
+    }
+}
+
 [Serializable]
 public class SpinResult
 {

@@ -10,23 +10,26 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 [Serializable]
-public sealed class SpinResultEvent : UnityEvent<SpinResult>
+internal sealed class SpinResultEvent : UnityEvent<SpinResult>
 {
 }
 
 [Serializable]
-public sealed class WinTierEvent : UnityEvent<int, double>
+internal sealed class WinTierEvent : UnityEvent<int, double>
+{
+}
+
+[Serializable]
+internal sealed class SymbolSelectedEvent : UnityEvent<int, int, int>
 {
 }
 
 /// <summary>
 /// Owns the complete visual slot flow. The server remains authoritative for the
-/// matrix, wins, balance, free games, expanding wilds and gift wilds.
+/// matrix, wins, balance, expanding wilds and gift wilds.
 ///
-/// The current scene intentionally has no SlotBehaviour component wired to it.
-/// To keep this change isolated to this file, a runtime component is added to
-/// the existing SlotManager object and its references are resolved by name.
-/// Inspector references still take priority when the component is wired later.
+/// The controller is wired to the existing SlotManager in MainScene. A runtime
+/// fallback remains for compatibility with scenes that have not been migrated.
 /// </summary>
 [DefaultExecutionOrder(-10000)]
 [DisallowMultipleComponent]
@@ -34,55 +37,50 @@ public class SlotBehaviour : MonoBehaviour
 {
     private const int DefaultReelCount = 5;
     private const int DefaultRowCount = 3;
-    private const int InfiniteAutoplay = -1;
 
-    [Header("Sprites")]
-    [Tooltip("Symbol sprites in server symbol-id order. If empty, the first reel strip is used.")]
+    [Header("Symbol Sprites - Assign by Name")]
+    [SerializeField] private Sprite sprite10;
+    [SerializeField] private Sprite spriteA;
+    [SerializeField] private Sprite spriteBell;
+    [SerializeField] private Sprite spriteCandle;
+    [SerializeField] private Sprite spriteCup;
+    [SerializeField] private Sprite spriteDeer;
+    [SerializeField] private Sprite spriteGift;
+    [SerializeField] private Sprite spriteJ;
+    [SerializeField] private Sprite spriteK;
+    [SerializeField] private Sprite spriteMoon;
+    [SerializeField] private Sprite spriteQ;
+    [SerializeField] private Sprite spriteSanta;
+    [SerializeField] private Sprite spriteSocks;
+
+    [Header("Symbol Animation Sprites")]
+    [SerializeField] private List<Sprite> animSprites10 = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesA = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesBell = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesCandle = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesCup = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesDeer = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesGift = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesJ = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesK = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesMoon = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesQ = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesSanta = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesSocks = new List<Sprite>();
+
+    [HideInInspector]
     [SerializeField] private Sprite[] myImages = Array.Empty<Sprite>();
 
     [Header("Slot Images")]
     [SerializeField] private List<SlotImage> images = new List<SlotImage>();
     [SerializeField] private List<SlotImage> Tempimages = new List<SlotImage>();
 
-    [Header("Slot Elements")]
-    [SerializeField] private LayoutElement[] Slot_Elements = Array.Empty<LayoutElement>();
-
     [Header("Slot Transforms")]
     [SerializeField] private Transform[] Slot_Transform = Array.Empty<Transform>();
-    [SerializeField] private Transform reelsRoot;
-
-    [Header("Buttons")]
-    [SerializeField] private Button SlotStart_Button;
-    [SerializeField] private Button AutoSpinStop_Button;
-    [SerializeField] private Button TBetPlus_Button;
-    [SerializeField] private Button TBetMinus_Button;
-    [SerializeField] private Button StopSpin_Button;
-    [SerializeField] private Button NormalSpeed_Button;
-    [SerializeField] private Button FastSpeed_Button;
-    [SerializeField] private Button SkipSpeed_Button;
-
-    [Header("Autoplay")]
-    [SerializeField] private GameObject AutoPlayPanel;
-    [SerializeField] private TMP_Text AutoPlayCount_Text;
-    [SerializeField, Min(0f)] private float spinButtonHoldDuration = 3f;
-    [SerializeField, Min(0f)] private float autoSpinGap = 0.25f;
-    [SerializeField, Min(0f)] private float autoSpinWinGap = 0.9f;
 
     [Header("Miscellaneous UI")]
-    [SerializeField] private TMP_Text Balance_text;
-    [SerializeField] private TMP_Text TotalBet_text;
-    [SerializeField] private TMP_Text LineBet_text;
     [SerializeField] private TMP_Text TotalWin_text;
     [SerializeField] private TMP_Text WinLinesCount_Text;
-
-    [Header("Free Spins")]
-    [SerializeField] private GameObject FreeSpinPanel;
-    [SerializeField] private Button FreeSpinStart_Button;
-    [SerializeField] private GameObject FreeSpinCountPanel;
-    [SerializeField] private Image FreeSpinCounter_Image;
-    [SerializeField] private Image FreeSpinTotal_Image;
-    [SerializeField] private GameObject FreeSpinWinPanel;
-    [SerializeField] private Button Take_Button;
 
     [Header("Spin Timing")]
     [SerializeField, Min(0.1f)] private float normalMinimumSpinTime = 1.35f;
@@ -102,67 +100,73 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField, Min(0.01f)] private float allWinsDuration = 0.8f;
     [SerializeField, Min(0.01f)] private float singleWinLineDuration = 0.7f;
     [SerializeField, Min(1f)] private float winningSymbolScale = 1.12f;
+    [SerializeField, Min(0.02f)] private float winSpriteFrameDuration = 0.08f;
+    [SerializeField, Min(1)] private int winSymbolLoopCount = 3;
+    [SerializeField] private TMP_Text phase1TotalWinText;
+
+    [Header("Win Animation Slot Images")]
+    [Tooltip("Five columns with three rows each. Assign the child Image named Animations from every Slot1 cell.")]
+    [SerializeField] private WinAnimationColumn[] winAnimationColumns =
+    {
+        new WinAnimationColumn(),
+        new WinAnimationColumn(),
+        new WinAnimationColumn(),
+        new WinAnimationColumn(),
+        new WinAnimationColumn()
+    };
 
     [Header("Audio (Optional)")]
-    [SerializeField] private AudioSource buttonAudio;
     [SerializeField] private AudioSource spinAudio;
     [SerializeField] private AudioSource winAudio;
-
-    [Header("Server")]
-    [SerializeField] private SocketIOManager SocketManager;
 
     [Header("Behaviour Events (Optional)")]
     [SerializeField] private UnityEvent onSpinStarted = new UnityEvent();
     [SerializeField] private SpinResultEvent onSpinStopped = new SpinResultEvent();
-    [SerializeField] private SpinResultEvent onFreeSpinsTriggered = new SpinResultEvent();
-    [SerializeField] private UnityEvent onInsufficientBalance = new UnityEvent();
     [SerializeField] private UnityEvent onSpinRequestFailed = new UnityEvent();
     [SerializeField] private WinTierEvent onWinTier = new WinTierEvent();
+    [SerializeField] private SymbolSelectedEvent onSymbolSelected = new SymbolSelectedEvent();
+    [SerializeField] private UnityEvent onSymbolInfoDismissed = new UnityEvent();
 
-    // Kept for compatibility with the previous controller and popup integrations.
-    internal bool IsAutoSpin;
-    internal bool IsFreeSpin;
     internal bool CheckPopups;
-    internal int BetCounter;
-    internal bool WasAutoSpinOn;
-    internal bool socketConnected;
 
-    public bool IsCurrentlySpinning => IsSpinning;
-    public SpinSpeed CurrentSpinSpeed => spinSpeed;
+    internal event Action<SpinResult> RoundStopped;
+    internal event Action<SpinResult> RequiredPresentationCompleted;
+    internal event Action<string> PresentationFailed;
+
+    internal bool IsCurrentlySpinning => IsSpinning;
+    internal bool IsInitialized => isInitialized;
+    internal bool IsWaitingForLateResult => waitingForLateResult;
+    internal bool IsResultPresentationActive => resultPresentationInProgress;
+    internal bool IsStopRequested => stopSpinRequested;
+    internal bool CanBeginSpinPresentation => isInitialized && !IsSpinning &&
+        !waitingForLateResult && !resultPresentationInProgress && reels.Count > 0 &&
+        myImages != null && myImages.Any(sprite => sprite != null);
 
     private readonly List<ReelRuntime> reels = new List<ReelRuntime>();
     private readonly List<Tween> activeTweens = new List<Tween>();
     private readonly List<Tween> winTweens = new List<Tween>();
-    private readonly Dictionary<int, Sprite> freeSpinNumberSprites = new Dictionary<int, Sprite>();
-    private readonly List<Sprite> generatedFreeSpinNumberSprites = new List<Sprite>();
+    private readonly Dictionary<Image, Sprite> animatedSymbolOriginalSprites = new Dictionary<Image, Sprite>();
+    private readonly Dictionary<Image, Color> animatedSymbolOriginalColors = new Dictionary<Image, Color>();
+    private readonly Dictionary<Image, Vector3> animatedSymbolOriginalScales = new Dictionary<Image, Vector3>();
+    private readonly Dictionary<int, WinAnimationSlotRuntime> winAnimationSlots = new Dictionary<int, WinAnimationSlotRuntime>();
+    private readonly Dictionary<int, Sprite> serverSpritesById = new Dictionary<int, Sprite>();
+    private readonly Dictionary<int, List<Sprite>> serverAnimationFramesById = new Dictionary<int, List<Sprite>>();
+    private readonly List<int> mappedServerSymbolIds = new List<int>();
+    private readonly HashSet<int> reportedUnknownSymbolIds = new HashSet<int>();
+    private List<Sprite>[] animationSpriteArrays = Array.Empty<List<Sprite>>();
+    private Transform winAnimationRoot;
+    private bool serverSymbolMappingActive;
+    private bool missingWinAnimationSlotWarningShown;
 
-    private static readonly Rect[] FreeSpinNumberRects =
-    {
-        new Rect(29f, 289f, 85f, 90f),
-        new Rect(174f, 289f, 64f, 89f),
-        new Rect(298f, 289f, 72f, 89f),
-        new Rect(430f, 289f, 71f, 91f),
-        new Rect(33f, 158f, 77f, 88f),
-        new Rect(168f, 158f, 69f, 88f),
-        new Rect(296f, 158f, 76f, 89f),
-        new Rect(430f, 158f, 71f, 85f),
-        new Rect(34f, 23f, 75f, 91f),
-        new Rect(168f, 24f, 76f, 89f),
-        new Rect(315f, 49f, 40f, 39f),
-        new Rect(448f, 46f, 34f, 45f)
-    };
+    internal List<List<int>> currentDisplayMatrix;
 
     private GameConfig gameConfig;
-    private PlayerData playerData = new PlayerData();
     private GameManager gameManager;
     private SpinResult pendingResult;
+    private SpinResult lastPresentedResult;
 
     private Coroutine spinRoutine;
-    private Coroutine autoSpinRoutine;
-    private Coroutine freeSpinRoutine;
-    private Coroutine spinButtonHoldRoutine;
     private Coroutine winAnimationRoutine;
-    private Tween balanceTween;
     private Tween winAmountTween;
 
     private bool gameManagerEventsBound;
@@ -172,21 +176,11 @@ public class SlotBehaviour : MonoBehaviour
     private bool resultReceived;
     private bool resultFailed;
     private bool waitingForLateResult;
-    private bool waitingForFreeSpinStart;
-    private bool waitingForFreeSpinTake;
-    private bool freeSpinNumberRangeWarningShown;
-    private bool isSpinButtonPointerDown;
-    private bool spinButtonHoldTriggered;
+    private bool resultPresentationInProgress;
+    private bool autoplayRoundInProgress;
+    private bool requiredPresentationCompletionRaised;
     private bool shuttingDown;
 
-    private int autoplaySpinsRemaining;
-    private int freeSpinsRemaining;
-    private int freeSpinsUsed;
-    private int freeSpinsTotal;
-    private double currentBalance;
-    private double currentLineBet;
-    private double currentTotalBet;
-    private double freeSpinTotalWin;
     private SpinSpeed spinSpeed = SpinSpeed.Normal;
 
     private sealed class ReelRuntime
@@ -197,6 +191,20 @@ public class SlotBehaviour : MonoBehaviour
         internal float symbolPitch;
         internal Tween motionTween;
         internal int completedCycles;
+    }
+
+    private sealed class SymbolAnimationRuntime
+    {
+        internal Image baseImage;
+        internal Image animationImage;
+        internal GameObject overlayRoot;
+        internal List<Sprite> frames;
+    }
+
+    private sealed class WinAnimationSlotRuntime
+    {
+        internal GameObject root;
+        internal Image image;
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -221,40 +229,20 @@ public class SlotBehaviour : MonoBehaviour
     private void Awake()
     {
         ResolveSceneReferences();
+        BuildSymbolSpriteArrays();
         BindGameManagerEvents();
         BuildReelCache();
-        BindButtons();
-        SetSpeed(spinSpeed, false);
-        SetControlState();
+        BuildWinAnimationSlotCache();
     }
 
     private void Start()
     {
-        if (!isInitialized && gameManager != null && gameManager.isInitialized)
+        if (!isInitialized && gameManager != null && gameManager.IsInitialized)
         {
             ApplyInitialization(
-                gameManager.gameConfig,
-                gameManager.playerData,
-                GenerateRandomMatrix(gameManager.gameConfig != null ? gameManager.gameConfig.rowCount : DefaultRowCount));
-        }
-    }
-
-    private void Update()
-    {
-        if (IsSpinning && SocketManager != null && !SocketManager.isConnected)
-        {
-            resultFailed = true;
-        }
-
-        // balance:sync updates GameManager directly. Mirror it while idle without
-        // interfering with the server balance applied at the end of a spin.
-        if (!IsSpinning && isInitialized)
-        {
-            if (gameManager != null && gameManager.playerData != null &&
-                Math.Abs(gameManager.playerData.balance - currentBalance) > 0.000001d)
-            {
-                UpdateBalanceDisplay(gameManager.playerData.balance);
-            }
+                gameManager.GameConfig,
+                gameManager.PlayerData,
+                GenerateRandomMatrix(gameManager.GameConfig != null ? gameManager.GameConfig.rowCount : DefaultRowCount));
         }
     }
 
@@ -268,7 +256,6 @@ public class SlotBehaviour : MonoBehaviour
     {
         shuttingDown = true;
         UnbindGameManagerEvents();
-        CancelSpinButtonHold();
         KillAllTweens();
         StopWinningAnimations();
 
@@ -282,63 +269,275 @@ public class SlotBehaviour : MonoBehaviour
     {
         shuttingDown = true;
         UnbindGameManagerEvents();
-
-        foreach (Sprite generatedSprite in generatedFreeSpinNumberSprites)
-        {
-            if (generatedSprite != null)
-            {
-                Destroy(generatedSprite);
-            }
-        }
-
-        generatedFreeSpinNumberSprites.Clear();
     }
 
     #region Scene setup
 
     private void ResolveSceneReferences()
     {
-        SocketManager = SocketManager != null ? SocketManager : FindSceneComponent<SocketIOManager>();
-        reelsRoot = reelsRoot != null ? reelsRoot : FindSceneTransform("Slots");
-
-        SlotStart_Button = SlotStart_Button != null ? SlotStart_Button : FindNamedComponent<Button>("Spin");
-        StopSpin_Button = StopSpin_Button != null ? StopSpin_Button : FindNamedComponent<Button>("Stop");
-        AutoSpinStop_Button = AutoSpinStop_Button != null ? AutoSpinStop_Button : FindNamedComponent<Button>("AutoplayStop");
-        TBetPlus_Button = TBetPlus_Button != null ? TBetPlus_Button : FindNamedComponent<Button>("BetIncrease");
-        TBetMinus_Button = TBetMinus_Button != null ? TBetMinus_Button : FindNamedComponent<Button>("BetDecrease");
-
-        NormalSpeed_Button = NormalSpeed_Button != null ? NormalSpeed_Button : FindNamedComponent<Button>("NormalSpinSpeed");
-        FastSpeed_Button = FastSpeed_Button != null ? FastSpeed_Button : FindNamedComponent<Button>("FastSpinSpeed");
-        SkipSpeed_Button = SkipSpeed_Button != null ? SkipSpeed_Button : FindNamedComponent<Button>("SkipSpinSpeed");
-
-        AutoPlayPanel = AutoPlayPanel != null ? AutoPlayPanel : FindSceneObject("Autoplay Panel");
-        AutoPlayCount_Text = AutoPlayCount_Text != null ? AutoPlayCount_Text : FindNamedText("AutoplayCount");
-
-        Balance_text = Balance_text != null ? Balance_text : FindNamedText("BalanceAmount");
-        TotalBet_text = TotalBet_text != null ? TotalBet_text : FindNamedText("BetAmount");
         TotalWin_text = TotalWin_text != null ? TotalWin_text : FindNamedText("WinAmount", "TotalWin");
         WinLinesCount_Text = WinLinesCount_Text != null ? WinLinesCount_Text : FindNamedText("WinLinesCount");
+        phase1TotalWinText = phase1TotalWinText != null ? phase1TotalWinText : TotalWin_text;
 
-        FreeSpinPanel = FreeSpinPanel != null ? FreeSpinPanel : FindSceneObject("FreeSpinPanel");
-        FreeSpinStart_Button = FreeSpinStart_Button != null
-            ? FreeSpinStart_Button
-            : FindDescendantComponent<Button>(FreeSpinPanel != null ? FreeSpinPanel.transform : null, "Start");
-        FreeSpinCountPanel = FreeSpinCountPanel != null ? FreeSpinCountPanel : FindSceneObject("FreeSpinCountPanel");
-        FreeSpinCounter_Image = FreeSpinCounter_Image != null
-            ? FreeSpinCounter_Image
-            : FindDescendantComponent<Image>(FreeSpinCountPanel != null ? FreeSpinCountPanel.transform : null, "FreeSpinCounter");
-        FreeSpinTotal_Image = FreeSpinTotal_Image != null
-            ? FreeSpinTotal_Image
-            : FindDescendantComponent<Image>(FreeSpinCountPanel != null ? FreeSpinCountPanel.transform : null, "6Text");
-        FreeSpinWinPanel = FreeSpinWinPanel != null ? FreeSpinWinPanel : FindSceneObject("FreeSpinWinPanel");
-        Take_Button = Take_Button != null ? Take_Button : FindNamedComponent<Button>("Take");
+        SetDeferredFreeSpinUiActive(false);
+    }
 
-        CacheFreeSpinNumberSprites();
+    private void BuildSymbolSpriteArrays()
+    {
+        Sprite[] legacySprites = myImages ?? Array.Empty<Sprite>();
+        sprite10 = SpriteOrLegacy(sprite10, legacySprites, 0);
+        spriteA = SpriteOrLegacy(spriteA, legacySprites, 1);
+        spriteBell = SpriteOrLegacy(spriteBell, legacySprites, 2);
+        spriteCandle = SpriteOrLegacy(spriteCandle, legacySprites, 3);
+        spriteCup = SpriteOrLegacy(spriteCup, legacySprites, 4);
+        spriteDeer = SpriteOrLegacy(spriteDeer, legacySprites, 5);
+        spriteGift = SpriteOrLegacy(spriteGift, legacySprites, 6);
+        spriteJ = SpriteOrLegacy(spriteJ, legacySprites, 7);
+        spriteK = SpriteOrLegacy(spriteK, legacySprites, 8);
+        spriteMoon = SpriteOrLegacy(spriteMoon, legacySprites, 9);
+        spriteQ = SpriteOrLegacy(spriteQ, legacySprites, 10);
+        spriteSanta = SpriteOrLegacy(spriteSanta, legacySprites, 11);
+        spriteSocks = SpriteOrLegacy(spriteSocks, legacySprites, 12);
+
+        myImages = new[]
+        {
+            sprite10,
+            spriteA,
+            spriteBell,
+            spriteCandle,
+            spriteCup,
+            spriteDeer,
+            spriteGift,
+            spriteJ,
+            spriteK,
+            spriteMoon,
+            spriteQ,
+            spriteSanta,
+            spriteSocks
+        };
+
+        animationSpriteArrays = new[]
+        {
+            BuildAnimationFrames(animSprites10, sprite10),
+            BuildAnimationFrames(animSpritesA, spriteA),
+            BuildAnimationFrames(animSpritesBell, spriteBell),
+            BuildAnimationFrames(animSpritesCandle, spriteCandle),
+            BuildAnimationFrames(animSpritesCup, spriteCup),
+            BuildAnimationFrames(animSpritesDeer, spriteDeer),
+            BuildAnimationFrames(animSpritesGift, spriteGift),
+            BuildAnimationFrames(animSpritesJ, spriteJ),
+            BuildAnimationFrames(animSpritesK, spriteK),
+            BuildAnimationFrames(animSpritesMoon, spriteMoon),
+            BuildAnimationFrames(animSpritesQ, spriteQ),
+            BuildAnimationFrames(animSpritesSanta, spriteSanta),
+            BuildAnimationFrames(animSpritesSocks, spriteSocks)
+        };
+    }
+
+    private static Sprite SpriteOrLegacy(Sprite namedSprite, Sprite[] legacySprites, int symbolId)
+    {
+        return namedSprite != null
+            ? namedSprite
+            : symbolId >= 0 && symbolId < legacySprites.Length
+                ? legacySprites[symbolId]
+                : null;
+    }
+
+    private static List<Sprite> BuildAnimationFrames(List<Sprite> configuredFrames, Sprite baseSprite)
+    {
+        List<Sprite> frames = configuredFrames != null
+            ? configuredFrames.Where(frame => frame != null).Distinct().ToList()
+            : new List<Sprite>();
+
+        if (frames.Count == 0 && baseSprite != null)
+        {
+            frames.Add(baseSprite);
+        }
+
+        return frames;
+    }
+
+    private bool BuildServerSymbolMapping(List<SymbolInfo> symbols)
+    {
+        serverSpritesById.Clear();
+        serverAnimationFramesById.Clear();
+        mappedServerSymbolIds.Clear();
+        reportedUnknownSymbolIds.Clear();
+        serverSymbolMappingActive = false;
+
+        if (symbols == null || symbols.Count == 0)
+        {
+            Debug.LogWarning("[SlotBehaviour] Init did not provide any symbols; using the legacy sprite order.");
+            return false;
+        }
+
+        Dictionary<string, int> symbolIdsByName = new Dictionary<string, int>();
+        HashSet<int> encounteredSymbolIds = new HashSet<int>();
+        bool hasValidationErrors = false;
+        foreach (SymbolInfo symbol in symbols)
+        {
+            if (symbol == null)
+            {
+                hasValidationErrors = true;
+                Debug.LogError("[SlotBehaviour] Init contains a null symbol entry.");
+                continue;
+            }
+
+            if (!encounteredSymbolIds.Add(symbol.id))
+            {
+                hasValidationErrors = true;
+                Debug.LogError($"[SlotBehaviour] Init contains duplicate symbol id {symbol.id} ({symbol.name}).");
+                continue;
+            }
+
+            string normalizedName = NormalizeSymbolName(symbol.name);
+            if (symbolIdsByName.TryGetValue(normalizedName, out int existingId))
+            {
+                hasValidationErrors = true;
+                Debug.LogError($"[SlotBehaviour] Init contains duplicate symbol name '{symbol.name}' for ids {existingId} and {symbol.id}.");
+            }
+            else if (!string.IsNullOrEmpty(normalizedName))
+            {
+                symbolIdsByName.Add(normalizedName, symbol.id);
+            }
+
+            if (!TryResolveNamedSymbol(normalizedName, out Sprite sprite, out List<Sprite> animationFrames))
+            {
+                hasValidationErrors = true;
+                Debug.LogError($"[SlotBehaviour] No assigned sprite matches init symbol id {symbol.id} named '{symbol.name}'.");
+                continue;
+            }
+
+            if (sprite == null)
+            {
+                hasValidationErrors = true;
+                Debug.LogError($"[SlotBehaviour] The sprite for init symbol id {symbol.id} named '{symbol.name}' is not assigned.");
+                continue;
+            }
+
+            serverSpritesById.Add(symbol.id, sprite);
+            serverAnimationFramesById.Add(symbol.id, BuildAnimationFrames(animationFrames, sprite));
+            mappedServerSymbolIds.Add(symbol.id);
+        }
+
+        serverSymbolMappingActive = mappedServerSymbolIds.Count > 0;
+        if (!serverSymbolMappingActive)
+        {
+            Debug.LogError("[SlotBehaviour] None of the init symbols could be mapped to assigned sprites.");
+            return false;
+        }
+
+        if (hasValidationErrors || mappedServerSymbolIds.Count != symbols.Count)
+        {
+            Debug.LogError($"[SlotBehaviour] Mapped {mappedServerSymbolIds.Count} of {symbols.Count} init symbols. Check the symbol names and sprite assignments above.");
+            return false;
+        }
+
+        Debug.Log($"[SlotBehaviour] Built init symbol mapping for {mappedServerSymbolIds.Count} symbols.");
+        return true;
+    }
+
+    private bool TryResolveNamedSymbol(
+        string normalizedName,
+        out Sprite sprite,
+        out List<Sprite> animationFrames)
+    {
+        sprite = null;
+        animationFrames = null;
+        bool recognized = true;
+
+        switch (normalizedName)
+        {
+            case "santa":
+                sprite = spriteSanta;
+                animationFrames = animSpritesSanta;
+                break;
+            case "gift":
+            case "present":
+                sprite = spriteGift;
+                animationFrames = animSpritesGift;
+                break;
+            case "scatter":
+            case "moon":
+                sprite = spriteMoon;
+                animationFrames = animSpritesMoon;
+                break;
+            case "reindeer":
+            case "deer":
+                sprite = spriteDeer;
+                animationFrames = animSpritesDeer;
+                break;
+            case "bell":
+            case "bells":
+                sprite = spriteBell;
+                animationFrames = animSpritesBell;
+                break;
+            case "stocking":
+            case "stockings":
+            case "sock":
+            case "socks":
+                sprite = spriteSocks;
+                animationFrames = animSpritesSocks;
+                break;
+            case "candle":
+                sprite = spriteCandle;
+                animationFrames = animSpritesCandle;
+                break;
+            case "milkcookie":
+            case "milkcookies":
+            case "cookie":
+            case "cookies":
+            case "cup":
+                sprite = spriteCup;
+                animationFrames = animSpritesCup;
+                break;
+            case "ace":
+            case "a":
+                sprite = spriteA;
+                animationFrames = animSpritesA;
+                break;
+            case "king":
+            case "k":
+                sprite = spriteK;
+                animationFrames = animSpritesK;
+                break;
+            case "queen":
+            case "q":
+                sprite = spriteQ;
+                animationFrames = animSpritesQ;
+                break;
+            case "jack":
+            case "j":
+                sprite = spriteJ;
+                animationFrames = animSpritesJ;
+                break;
+            case "ten":
+            case "10":
+                sprite = sprite10;
+                animationFrames = animSprites10;
+                break;
+            default:
+                recognized = false;
+                break;
+        }
+
+        return recognized;
+    }
+
+    private static string NormalizeSymbolName(string symbolName)
+    {
+        return string.IsNullOrWhiteSpace(symbolName)
+            ? string.Empty
+            : new string(symbolName
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToLowerInvariant)
+                .ToArray());
     }
 
     private void BuildReelCache()
     {
         reels.Clear();
+        Transform reelsRoot = FindSceneTransform("Slots");
 
         if (reelsRoot == null)
         {
@@ -388,9 +587,10 @@ public class SlotBehaviour : MonoBehaviour
             return;
         }
 
-        if (myImages == null || myImages.Length == 0)
+        if (myImages == null || myImages.Length == 0 || myImages.All(sprite => sprite == null))
         {
             myImages = reels[0].symbols.Select(symbol => symbol.sprite).ToArray();
+            BuildSymbolSpriteArrays();
         }
 
         images = reels
@@ -398,12 +598,167 @@ public class SlotBehaviour : MonoBehaviour
             .ToList();
 
         Slot_Transform = reels.Select(reel => (Transform)reel.transform).ToArray();
-        Slot_Elements = reels
-            .Select(reel => reel.transform.GetComponent<LayoutElement>())
-            .Where(element => element != null)
-            .ToArray();
 
         RefreshVisibleImageCache(DefaultRowCount);
+        SetupSymbolButtons(DefaultRowCount);
+    }
+
+    private void BuildWinAnimationSlotCache()
+    {
+        winAnimationSlots.Clear();
+        missingWinAnimationSlotWarningShown = false;
+        winAnimationRoot = FindWinAnimationRoot();
+
+        int assignedSlotCount = CacheAssignedWinAnimationSlots();
+        int expectedSlotCount = DefaultReelCount * DefaultRowCount;
+        if (assignedSlotCount > 0 && assignedSlotCount < expectedSlotCount)
+        {
+            Debug.LogWarning($"[SlotBehaviour] Only {assignedSlotCount} of {expectedSlotCount} win animation Images are assigned in the Inspector. Missing positions will use the hierarchy fallback.");
+        }
+
+        if (winAnimationRoot != null)
+        {
+            CacheHierarchyWinAnimationSlots();
+        }
+        else if (assignedSlotCount == 0)
+        {
+            Debug.LogWarning("[SlotBehaviour] The separate win-animation slot root was not found. Win symbols will use the reel Images as a fallback.");
+            return;
+        }
+
+        if (winAnimationRoot != null)
+        {
+            winAnimationRoot.gameObject.SetActive(false);
+        }
+
+        Debug.Log($"[SlotBehaviour] Cached {winAnimationSlots.Count} separate win-animation slots ({assignedSlotCount} assigned in the Inspector).");
+    }
+
+    private int CacheAssignedWinAnimationSlots()
+    {
+        if (winAnimationColumns == null || winAnimationColumns.Length == 0)
+        {
+            return 0;
+        }
+
+        if (winAnimationColumns.Length != DefaultReelCount)
+        {
+            Debug.LogWarning($"[SlotBehaviour] Win Animation Slot Images should contain {DefaultReelCount} columns, but it contains {winAnimationColumns.Length}.");
+        }
+
+        int assignedCount = 0;
+        HashSet<Image> assignedImages = new HashSet<Image>();
+        int columnCount = Mathf.Min(DefaultReelCount, winAnimationColumns.Length);
+        for (int column = 0; column < columnCount; column++)
+        {
+            WinAnimationColumn configuredColumn = winAnimationColumns[column];
+            if (configuredColumn?.rows == null)
+            {
+                continue;
+            }
+
+            if (configuredColumn.rows.Length != DefaultRowCount)
+            {
+                Debug.LogWarning($"[SlotBehaviour] Win animation column {column} should contain {DefaultRowCount} row Images, but it contains {configuredColumn.rows.Length}.");
+            }
+
+            int rowCount = Mathf.Min(DefaultRowCount, configuredColumn.rows.Length);
+            for (int row = 0; row < rowCount; row++)
+            {
+                Image animationImage = configuredColumn.rows[row];
+                if (animationImage == null)
+                {
+                    continue;
+                }
+
+                if (!assignedImages.Add(animationImage))
+                {
+                    Debug.LogError($"[SlotBehaviour] The same win animation Image is assigned more than once: {animationImage.name}.");
+                    continue;
+                }
+
+                int flatPosition = row * DefaultReelCount + column;
+                if (TryCacheWinAnimationSlot(flatPosition, animationImage, true))
+                {
+                    assignedCount++;
+                }
+            }
+        }
+
+        return assignedCount;
+    }
+
+    private void CacheHierarchyWinAnimationSlots()
+    {
+        int reelCount = winAnimationRoot.childCount;
+        for (int column = 0; column < reelCount; column++)
+        {
+            Transform columnRoot = winAnimationRoot.GetChild(column);
+            for (int row = 0; row < columnRoot.childCount; row++)
+            {
+                int flatPosition = row * reelCount + column;
+                if (winAnimationSlots.ContainsKey(flatPosition))
+                {
+                    continue;
+                }
+
+                Transform slotRoot = columnRoot.GetChild(row);
+                Transform animationTransform = slotRoot.Find("Animations");
+                Image animationImage = animationTransform != null
+                    ? animationTransform.GetComponent<Image>()
+                    : null;
+                if (animationImage == null)
+                {
+                    Debug.LogWarning($"[SlotBehaviour] Animation slot at column {column}, row {row} has no child Image named 'Animations'.");
+                    slotRoot.gameObject.SetActive(false);
+                    continue;
+                }
+
+                TryCacheWinAnimationSlot(flatPosition, animationImage, false);
+            }
+        }
+    }
+
+    private bool TryCacheWinAnimationSlot(int flatPosition, Image animationImage, bool inspectorAssignment)
+    {
+        if (animationImage == null || animationImage.transform.parent == null)
+        {
+            return false;
+        }
+
+        GameObject slotRoot = animationImage.transform.parent.gameObject;
+        if (inspectorAssignment && animationImage.name != "Animations")
+        {
+            Debug.LogWarning($"[SlotBehaviour] Win animation position {flatPosition} is assigned to '{animationImage.name}'. Assign the child Image named 'Animations'.");
+        }
+
+        foreach (Image overlayImage in slotRoot.GetComponentsInChildren<Image>(true))
+        {
+            overlayImage.raycastTarget = false;
+        }
+
+        animationImage.gameObject.SetActive(false);
+        slotRoot.SetActive(false);
+        winAnimationSlots[flatPosition] = new WinAnimationSlotRuntime
+        {
+            root = slotRoot,
+            image = animationImage
+        };
+        return true;
+    }
+
+    private Transform FindWinAnimationRoot()
+    {
+        return Resources.FindObjectsOfTypeAll<Transform>()
+            .Where(candidate =>
+                candidate != null &&
+                candidate.gameObject.scene == gameObject.scene &&
+                candidate.name == "Animations" &&
+                candidate.childCount >= DefaultReelCount)
+            .OrderByDescending(candidate => candidate.childCount)
+            .FirstOrDefault(candidate =>
+                Enumerable.Range(0, candidate.childCount)
+                    .All(column => candidate.GetChild(column).childCount > 0));
     }
 
     private static float CalculateSymbolPitch(RectTransform reelTransform)
@@ -440,157 +795,63 @@ public class SlotBehaviour : MonoBehaviour
         }
     }
 
-    private void BindButtons()
+    private void SetupSymbolButtons(int rowCount)
     {
-        ConfigureSpinButtonHold();
-        BindButton(StopSpin_Button, RequestStopSpin);
-        BindButton(AutoSpinStop_Button, StopAutoSpin);
-        BindButton(TBetPlus_Button, () => ChangeBet(true));
-        BindButton(TBetMinus_Button, () => ChangeBet(false));
-        BindButton(FreeSpinStart_Button, StartFirstFreeSpin);
-        BindButton(Take_Button, TakeFreeSpinWin);
+        int safeRows = Mathf.Max(1, rowCount);
+        for (int reelIndex = 0; reelIndex < reels.Count; reelIndex++)
+        {
+            ReelRuntime reel = reels[reelIndex];
+            int visibleStart = Mathf.Max(0, reel.symbols.Count - safeRows);
+            int visibleCount = Mathf.Min(safeRows, reel.symbols.Count - visibleStart);
 
-        BindButton(NormalSpeed_Button, () => SetSpeed(SpinSpeed.Turbo));
-        BindButton(FastSpeed_Button, () => SetSpeed(SpinSpeed.QuickSpin));
-        BindButton(SkipSpeed_Button, () => SetSpeed(SpinSpeed.Normal));
+            for (int row = 0; row < visibleCount; row++)
+            {
+                Image symbolImage = reel.symbols[visibleStart + row];
+                if (symbolImage == null)
+                {
+                    continue;
+                }
 
-        BindAutoplayChoice("10", 10);
-        BindAutoplayChoice("50", 50);
-        BindAutoplayChoice("100", 100);
-        BindAutoplayChoice("200", 200);
-        BindAutoplayChoice("500", 500);
-        BindAutoplayChoice("Infinity", InfiniteAutoplay);
+                SymbolButtonHandler handler = symbolImage.GetComponent<SymbolButtonHandler>();
+                if (handler == null)
+                {
+                    handler = symbolImage.gameObject.AddComponent<SymbolButtonHandler>();
+                }
 
+                handler.Init(reelIndex, row, this);
+            }
+        }
     }
 
-    private static void BindButton(Button button, UnityAction action)
+    internal void HideSymbolInfoCard()
     {
-        if (button == null || action == null)
+        onSymbolInfoDismissed?.Invoke();
+    }
+
+    internal void OnBetChanged()
+    {
+        HideSymbolInfoCard();
+    }
+
+    internal void OnSymbolClicked(int column, int row, RectTransform symbolRect)
+    {
+        if (IsSpinning || currentDisplayMatrix == null || column < 0 || column >= currentDisplayMatrix.Count)
+        {
+            HideSymbolInfoCard();
+            return;
+        }
+
+        List<int> matrixColumn = currentDisplayMatrix[column];
+        if (matrixColumn == null || row < 0 || row >= matrixColumn.Count)
         {
             return;
         }
 
-        button.onClick.RemoveListener(action);
-        button.onClick.AddListener(action);
-    }
-
-    private void BindAutoplayChoice(string objectName, int spinCount)
-    {
-        Button button = AutoPlayPanel != null
-            ? AutoPlayPanel.GetComponentsInChildren<Button>(true)
-                .FirstOrDefault(candidate => candidate != null && candidate.name == objectName)
-            : null;
-
-        button = button != null ? button : FindNamedComponent<Button>(objectName);
-        if (button == null)
+        int symbolId = matrixColumn[row];
+        if (symbolId >= 0)
         {
-            return;
+            onSymbolSelected?.Invoke(symbolId, column, row);
         }
-
-        button.onClick.AddListener(() => StartAutoSpin(spinCount));
-    }
-
-    private void ConfigureSpinButtonHold()
-    {
-        if (SlotStart_Button == null)
-        {
-            return;
-        }
-
-        SlotStart_Button.onClick.RemoveListener(StartSlots);
-
-        EventTrigger eventTrigger = SlotStart_Button.GetComponent<EventTrigger>();
-        if (eventTrigger == null)
-        {
-            eventTrigger = SlotStart_Button.gameObject.AddComponent<EventTrigger>();
-        }
-
-        AddSpinButtonPointerEvent(eventTrigger, EventTriggerType.PointerDown, OnSpinButtonPointerDown);
-        AddSpinButtonPointerEvent(eventTrigger, EventTriggerType.PointerUp, OnSpinButtonPointerUp);
-        AddSpinButtonPointerEvent(eventTrigger, EventTriggerType.PointerExit, OnSpinButtonPointerExit);
-    }
-
-    private static void AddSpinButtonPointerEvent(
-        EventTrigger eventTrigger,
-        EventTriggerType eventType,
-        UnityAction<BaseEventData> callback)
-    {
-        EventTrigger.Entry entry = new EventTrigger.Entry
-        {
-            eventID = eventType
-        };
-
-        entry.callback.AddListener(callback);
-        eventTrigger.triggers.Add(entry);
-    }
-
-    private void OnSpinButtonPointerDown(BaseEventData eventData)
-    {
-        if (isSpinButtonPointerDown || SlotStart_Button == null || !SlotStart_Button.interactable)
-        {
-            return;
-        }
-
-        isSpinButtonPointerDown = true;
-        spinButtonHoldTriggered = false;
-        spinButtonHoldRoutine = StartCoroutine(SpinButtonHoldCheckRoutine());
-    }
-
-    private void OnSpinButtonPointerUp(BaseEventData eventData)
-    {
-        if (!isSpinButtonPointerDown)
-        {
-            return;
-        }
-
-        isSpinButtonPointerDown = false;
-        StopSpinButtonHoldRoutine();
-
-        if (!spinButtonHoldTriggered && SlotStart_Button != null && SlotStart_Button.interactable)
-        {
-            StartSlots();
-        }
-    }
-
-    private void OnSpinButtonPointerExit(BaseEventData eventData)
-    {
-        if (!isSpinButtonPointerDown)
-        {
-            return;
-        }
-
-        CancelSpinButtonHold();
-    }
-
-    private IEnumerator SpinButtonHoldCheckRoutine()
-    {
-        yield return new WaitForSecondsRealtime(Mathf.Max(0f, spinButtonHoldDuration));
-
-        if (isSpinButtonPointerDown && SlotStart_Button != null && SlotStart_Button.interactable)
-        {
-            spinButtonHoldTriggered = true;
-            OpenAutoplayPanelFromHold();
-        }
-
-        spinButtonHoldRoutine = null;
-    }
-
-    private void CancelSpinButtonHold()
-    {
-        isSpinButtonPointerDown = false;
-        spinButtonHoldTriggered = false;
-        StopSpinButtonHoldRoutine();
-    }
-
-    private void StopSpinButtonHoldRoutine()
-    {
-        if (spinButtonHoldRoutine == null)
-        {
-            return;
-        }
-
-        StopCoroutine(spinButtonHoldRoutine);
-        spinButtonHoldRoutine = null;
     }
 
     private static GameObject FindSceneObject(string objectName)
@@ -610,6 +871,19 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         return null;
+    }
+
+    private static void SetDeferredFreeSpinUiActive(bool isActive)
+    {
+        string[] panelNames = { "FreeSpinPanel", "FreeSpinCountPanel", "FreeSpinWinPanel" };
+        foreach (string panelName in panelNames)
+        {
+            GameObject panel = FindSceneObject(panelName);
+            if (panel != null)
+            {
+                panel.SetActive(isActive);
+            }
+        }
     }
 
     private static Transform FindSceneTransform(string objectName)
@@ -658,17 +932,6 @@ public class SlotBehaviour : MonoBehaviour
         return null;
     }
 
-    private static T FindDescendantComponent<T>(Transform root, string objectName) where T : Component
-    {
-        if (root == null || string.IsNullOrWhiteSpace(objectName))
-        {
-            return null;
-        }
-
-        T[] candidates = root.GetComponentsInChildren<T>(true);
-        return candidates.FirstOrDefault(candidate => candidate != null && candidate.name == objectName);
-    }
-
     #endregion
 
     #region Game state integration
@@ -707,10 +970,13 @@ public class SlotBehaviour : MonoBehaviour
 
     private void OnGameDisconnected()
     {
-        socketConnected = false;
         if (IsSpinning)
         {
             resultFailed = true;
+        }
+        else if (waitingForLateResult)
+        {
+            waitingForLateResult = false;
         }
     }
 
@@ -719,7 +985,7 @@ public class SlotBehaviour : MonoBehaviour
         PlayerData initialPlayerData,
         List<List<int>> initialMatrix)
     {
-        if (config == null || initialPlayerData == null)
+        if (config == null)
         {
             Debug.LogError("[SlotBehaviour] Initialization data is incomplete.");
             return;
@@ -728,22 +994,19 @@ public class SlotBehaviour : MonoBehaviour
         try
         {
             gameConfig = config;
-            playerData = initialPlayerData;
-            BetCounter = Mathf.Clamp(playerData.currentBetIndex, 0, Math.Max(0, gameConfig.availableBets.Count - 1));
-            currentBalance = playerData.balance;
+            if (!BuildServerSymbolMapping(gameConfig.symbols))
+            {
+                throw new InvalidOperationException("The init symbol list could not be mapped to the assigned symbol sprites.");
+            }
             isInitialized = true;
-            socketConnected = true;
             waitingForLateResult = false;
 
-            CopyStateToGameManager();
             RefreshVisibleImageCache(gameConfig.rowCount);
-            ApplyMatrix(IsValidMatrix(initialMatrix) ? initialMatrix : GenerateRandomMatrix(gameConfig.rowCount));
-            RefreshBetValues();
-            UpdateBalanceText(currentBalance);
+            SetupSymbolButtons(gameConfig.rowCount);
+            bool canUseInitialMatrix = IsValidMatrix(initialMatrix) && MatrixUsesMappedSymbols(initialMatrix);
+            ApplyMatrix(canUseInitialMatrix ? initialMatrix : GenerateRandomMatrix(gameConfig.rowCount));
             SetWinAmount(0d, false);
             UpdateWinLineCount(gameConfig.paylineCount);
-            UpdateFreeSpinDisplay();
-            SetControlState();
         }
         catch (Exception exception)
         {
@@ -766,18 +1029,13 @@ public class SlotBehaviour : MonoBehaviour
             return;
         }
 
-        if (result.playerData != null)
-        {
-            result.playerData.currentBetIndex = BetCounter;
-        }
-
         ApplySantaFeatureSymbols(result);
 
         if (waitingForLateResult && !IsSpinning)
         {
             waitingForLateResult = false;
             PresentResult(result);
-            SetControlState();
+            RoundStopped?.Invoke(result);
             return;
         }
 
@@ -827,101 +1085,75 @@ public class SlotBehaviour : MonoBehaviour
         }
     }
 
-    private void CopyStateToGameManager()
-    {
-        gameManager = gameManager != null ? gameManager : FindSceneComponent<GameManager>();
-        if (gameManager == null)
-        {
-            return;
-        }
-
-        gameManager.gameConfig = gameConfig;
-        gameManager.playerData = playerData;
-        gameManager.currentBetIndex = BetCounter;
-        gameManager.currentBetAmount = currentLineBet;
-        gameManager.isInitialized = isInitialized;
-        gameManager.initializationFailed = !isInitialized;
-    }
-
     #endregion
 
     #region Spin flow
 
-    public void StartSlots()
+    internal void StartSlots()
     {
-        TryStartSpin(false);
+        gameManager?.TryStartManualSpin();
     }
 
-    private bool TryStartSpin(bool continuousSpin)
+    internal void StartSpin()
     {
-        if (IsSpinning || waitingForLateResult || waitingForFreeSpinStart || waitingForFreeSpinTake || !CanSendSpin())
-        {
-            return false;
-        }
+        StartSlots();
+    }
 
-        if (!IsFreeSpin && currentBalance + 0.0000001d < currentTotalBet)
+    internal bool QuickStop()
+    {
+        return gameManager != null && gameManager.RequestStopSpin();
+    }
+
+    internal bool BeginSpinPresentation(SpinSpeed speed, bool autoplayRound)
+    {
+        if (!CanBeginSpinPresentation)
         {
-            StopAutoSpin();
-            onInsufficientBalance?.Invoke();
-            Debug.LogWarning("[SlotBehaviour] Spin blocked because the balance is below the selected total bet.");
             return false;
         }
 
         StopWinningAnimations();
+        HideSymbolInfoCard();
         SetWinAmount(0d, false);
 
+        spinSpeed = speed;
         IsSpinning = true;
+        autoplayRoundInProgress = autoplayRound;
         stopSpinRequested = spinSpeed == SpinSpeed.QuickSpin;
         resultReceived = false;
         resultFailed = false;
         pendingResult = null;
         CheckPopups = false;
 
-        if (!IsFreeSpin)
-        {
-            AnimateBalanceTo(Math.Max(0d, currentBalance - currentTotalBet));
-        }
-
-        SetControlState();
-        PlayAudio(buttonAudio);
         PlayLoopingAudio(spinAudio);
         onSpinStarted?.Invoke();
 
-        SocketManager.SendSpinRequest(BetCounter, IsFreeSpin);
-        spinRoutine = StartCoroutine(SpinCoroutine(continuousSpin));
+        spinRoutine = StartCoroutine(SpinCoroutine());
         return true;
     }
 
-    private bool CanSendSpin()
+    internal bool RequestStopPresentation()
     {
-        if (!isInitialized)
+        if (!IsSpinning || stopSpinRequested)
         {
-            Debug.LogWarning("[SlotBehaviour] Spin ignored until game initialization is complete.");
             return false;
         }
 
-        if (SocketManager == null || !SocketManager.isConnected)
-        {
-            Debug.LogWarning("[SlotBehaviour] Spin ignored because the socket is not connected.");
-            return false;
-        }
-
-        if (gameConfig?.availableBets == null || gameConfig.availableBets.Count == 0)
-        {
-            Debug.LogError("[SlotBehaviour] Spin ignored because no bet options were supplied by the server.");
-            return false;
-        }
-
-        if (reels.Count == 0 || myImages == null || myImages.Length == 0)
-        {
-            Debug.LogError("[SlotBehaviour] Spin ignored because the reel visuals are not ready.");
-            return false;
-        }
-
+        stopSpinRequested = true;
         return true;
     }
 
-    private IEnumerator SpinCoroutine(bool continuousSpin)
+    internal void FailSpinPresentation(string reason)
+    {
+        if (!IsSpinning && !waitingForLateResult)
+        {
+            PresentationFailed?.Invoke(reason);
+            return;
+        }
+
+        resultFailed = true;
+    }
+
+    private IEnumerator SpinCoroutine()
     {
         float startTime = Time.realtimeSinceStartup;
         float minimumSpinTime = GetMinimumSpinTime();
@@ -978,7 +1210,7 @@ public class SlotBehaviour : MonoBehaviour
 
         PresentResult(completedResult);
         IsSpinning = false;
-        SetControlState();
+        RoundStopped?.Invoke(completedResult);
     }
 
     private IEnumerator AbortSpin(string reason)
@@ -986,18 +1218,15 @@ public class SlotBehaviour : MonoBehaviour
         Debug.LogError($"[SlotBehaviour] {reason}");
         StopLoopingAudio(spinAudio);
         KillReelTweens(true);
-        balanceTween?.Kill();
-        balanceTween = null;
-        UpdateBalanceText(currentBalance);
 
         IsSpinning = false;
         resultReceived = false;
         resultFailed = false;
         pendingResult = null;
         spinRoutine = null;
-        StopAutoSpin();
+        autoplayRoundInProgress = false;
         onSpinRequestFailed?.Invoke();
-        SetControlState();
+        PresentationFailed?.Invoke(reason);
         yield return null;
     }
 
@@ -1031,6 +1260,8 @@ public class SlotBehaviour : MonoBehaviour
             KillReelTweens(true);
             yield break;
         }
+
+        currentDisplayMatrix = CloneMatrix(resultMatrix);
 
         bool quickStop = stopSpinRequested || spinSpeed == SpinSpeed.QuickSpin;
         bool turboStop = !quickStop && spinSpeed == SpinSpeed.Turbo;
@@ -1109,11 +1340,67 @@ public class SlotBehaviour : MonoBehaviour
             return;
         }
 
+        currentDisplayMatrix = CloneMatrix(matrix);
+
         for (int reelIndex = 0; reelIndex < reels.Count; reelIndex++)
         {
             ApplyMatrixColumn(reelIndex, matrix[reelIndex]);
             reels[reelIndex].transform.anchoredPosition = reels[reelIndex].restingPosition;
         }
+    }
+
+    internal void SetInitialMatrix(List<List<int>> matrix)
+    {
+        if (!IsValidMatrix(matrix))
+        {
+            Debug.LogWarning("[SlotBehaviour] Ignored an invalid initial matrix.");
+            return;
+        }
+
+        ApplyMatrix(matrix);
+    }
+
+    internal List<List<int>> GetCurrentDisplayMatrix()
+    {
+        return CloneMatrix(currentDisplayMatrix);
+    }
+
+    private static List<List<int>> CloneMatrix(List<List<int>> matrix)
+    {
+        if (matrix == null)
+        {
+            return null;
+        }
+
+        return matrix
+            .Select(column => column != null ? new List<int>(column) : new List<int>())
+            .ToList();
+    }
+
+    private Sprite GetSymbolSprite(int symbolId)
+    {
+        if (serverSymbolMappingActive)
+        {
+            if (serverSpritesById.TryGetValue(symbolId, out Sprite mappedSprite) && mappedSprite != null)
+            {
+                return mappedSprite;
+            }
+
+            if (reportedUnknownSymbolIds.Add(symbolId))
+            {
+                Debug.LogError($"[SlotBehaviour] Result contains symbol id {symbolId}, but init did not map that id to a sprite.");
+            }
+
+            return serverSpritesById.Values.FirstOrDefault(sprite => sprite != null);
+        }
+
+        if (symbolId >= 0 && symbolId < myImages.Length && myImages[symbolId] != null)
+        {
+            return myImages[symbolId];
+        }
+
+        Debug.LogWarning($"[SlotBehaviour] Invalid or unassigned symbol id {symbolId}.");
+        return myImages.FirstOrDefault(sprite => sprite != null);
     }
 
     private void ApplyMatrixColumn(int reelIndex, List<int> column)
@@ -1125,13 +1412,13 @@ public class SlotBehaviour : MonoBehaviour
         for (int row = 0; row < rowCount; row++)
         {
             int symbolId = column[row];
-            if (symbolId < 0 || symbolId >= myImages.Length || myImages[symbolId] == null)
+            Sprite symbolSprite = GetSymbolSprite(symbolId);
+            if (symbolSprite == null)
             {
-                Debug.LogWarning($"[SlotBehaviour] Invalid symbol id {symbolId} at reel {reelIndex}, row {row}.");
                 continue;
             }
 
-            reel.symbols[visibleStart + row].sprite = myImages[symbolId];
+            reel.symbols[visibleStart + row].sprite = symbolSprite;
         }
     }
 
@@ -1154,6 +1441,29 @@ public class SlotBehaviour : MonoBehaviour
         return true;
     }
 
+    private bool MatrixUsesMappedSymbols(List<List<int>> matrix)
+    {
+        if (!serverSymbolMappingActive)
+        {
+            return true;
+        }
+
+        int reelCount = Mathf.Min(reels.Count, matrix.Count);
+        int rowCount = GetRowCount();
+        for (int reelIndex = 0; reelIndex < reelCount; reelIndex++)
+        {
+            for (int row = 0; row < rowCount; row++)
+            {
+                if (!serverSpritesById.ContainsKey(matrix[reelIndex][row]))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     private void PresentResult(SpinResult result)
     {
         if (result == null)
@@ -1162,13 +1472,6 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         ApplyMatrix(result.resultMatrix);
-
-        if (result.playerData != null)
-        {
-            playerData = result.playerData;
-            currentBalance = result.playerData.balance;
-            UpdateBalanceText(currentBalance);
-        }
 
         double displayedWin = result.grandTotalWin > 0d ? result.grandTotalWin : result.winAmount;
         SetWinAmount(displayedWin, true);
@@ -1181,25 +1484,7 @@ public class SlotBehaviour : MonoBehaviour
 
         StartResultAnimations(result);
 
-        UpdateFreeSpinState(result);
-
-        CopyStateToGameManager();
         onSpinStopped?.Invoke(result);
-    }
-
-    private void RequestStopSpin()
-    {
-        if (!IsSpinning)
-        {
-            return;
-        }
-
-        PlayAudio(buttonAudio);
-        stopSpinRequested = true;
-        if (StopSpin_Button != null)
-        {
-            StopSpin_Button.gameObject.SetActive(false);
-        }
     }
 
     private float GetMinimumSpinTime()
@@ -1217,455 +1502,12 @@ public class SlotBehaviour : MonoBehaviour
 
     #endregion
 
-    #region Autoplay and free games
-
-    public void AutoSpin()
-    {
-        ToggleAutoplayPanel();
-    }
-
-    private void ToggleAutoplayPanel()
-    {
-        if (IsSpinning || IsFreeSpin || waitingForFreeSpinStart || waitingForFreeSpinTake || AutoPlayPanel == null)
-        {
-            return;
-        }
-
-        PlayAudio(buttonAudio);
-        AutoPlayPanel.SetActive(!AutoPlayPanel.activeSelf);
-    }
-
-    public void StartAutoSpin(int spinCount)
-    {
-        if (IsAutoSpin || spinCount == 0)
-        {
-            return;
-        }
-
-        if (!isInitialized || waitingForLateResult || waitingForFreeSpinStart || waitingForFreeSpinTake)
-        {
-            return;
-        }
-
-        autoplaySpinsRemaining = spinCount < 0 ? InfiniteAutoplay : spinCount;
-        IsAutoSpin = true;
-        WasAutoSpinOn = false;
-
-        if (AutoPlayPanel != null)
-        {
-            AutoPlayPanel.SetActive(false);
-        }
-
-        UpdateAutoplayDisplay();
-        SetControlState();
-
-        if (autoSpinRoutine != null)
-        {
-            StopCoroutine(autoSpinRoutine);
-        }
-
-        autoSpinRoutine = StartCoroutine(AutoSpinCoroutine());
-    }
-
-    public void StopAutoSpin()
-    {
-        if (!IsAutoSpin && autoSpinRoutine == null)
-        {
-            return;
-        }
-
-        IsAutoSpin = false;
-        autoplaySpinsRemaining = 0;
-        UpdateAutoplayDisplay();
-        SetControlState();
-    }
-
-    private IEnumerator AutoSpinCoroutine()
-    {
-        while (IsAutoSpin)
-        {
-            if (IsFreeSpin || IsSpinning || waitingForFreeSpinStart || waitingForFreeSpinTake)
-            {
-                yield return null;
-                continue;
-            }
-
-            if (autoplaySpinsRemaining == 0)
-            {
-                break;
-            }
-
-            bool started = TryStartSpin(true);
-            if (!started)
-            {
-                break;
-            }
-
-            if (autoplaySpinsRemaining > 0)
-            {
-                autoplaySpinsRemaining--;
-                UpdateAutoplayDisplay();
-            }
-
-            yield return new WaitUntil(() => !IsSpinning || !IsAutoSpin);
-
-            if (!IsAutoSpin)
-            {
-                break;
-            }
-
-            float delay = TotalWinValue() > 0d ? autoSpinWinGap : autoSpinGap;
-            if (delay > 0f)
-            {
-                yield return new WaitForSecondsRealtime(delay);
-            }
-        }
-
-        IsAutoSpin = false;
-        autoSpinRoutine = null;
-        UpdateAutoplayDisplay();
-        SetControlState();
-    }
-
-    internal void FreeSpin(int spins)
-    {
-        if (spins <= 0)
-        {
-            return;
-        }
-
-        BeginFreeSpins(spins, 0, spins, 0d, null);
-    }
-
-    private void UpdateFreeSpinState(SpinResult result)
-    {
-        bool hasFreeGameTrigger = result.freeSpinData != null && result.freeSpinData.isTriggered;
-        bool hasFreeGameRoundState = hasFreeGameTrigger || result.serverTotalSpins > 0;
-        int reportedRemaining = result.serverSpinsRemaining;
-
-        if (hasFreeGameTrigger && reportedRemaining <= 0)
-        {
-            reportedRemaining = Math.Max(result.freeSpinData.remainingSpins, result.freeSpinData.spinsAwarded);
-        }
-
-        if (hasFreeGameTrigger && !IsFreeSpin && !waitingForFreeSpinStart)
-        {
-            int totalSpins = result.serverTotalSpins > 0
-                ? result.serverTotalSpins
-                : Math.Max(result.freeSpinData.spinsAwarded, reportedRemaining);
-            BeginFreeSpins(
-                reportedRemaining,
-                Math.Max(0, result.serverSpinsUsed),
-                totalSpins,
-                result.serverTotalRoundWin,
-                result);
-            return;
-        }
-
-        // Santa Riches reports whether the completed spin was a free spin but
-        // keeps the remaining count on the client. Retriggers add their award
-        // before the completed spin is deducted.
-        if (IsFreeSpin && result.isFreeSpinResult)
-        {
-            if (hasFreeGameTrigger && result.freeSpinData.spinsAwarded > 0)
-            {
-                int retriggerAward = result.freeSpinData.spinsAwarded;
-                freeSpinsRemaining += retriggerAward;
-                freeSpinsTotal += retriggerAward;
-                onFreeSpinsTriggered?.Invoke(result);
-            }
-
-            freeSpinsRemaining = Math.Max(0, freeSpinsRemaining - 1);
-            freeSpinsUsed++;
-            freeSpinTotalWin += Math.Max(0d, result.winAmount);
-
-            if (freeSpinsRemaining <= 0)
-            {
-                CompleteFreeSpins();
-            }
-            else
-            {
-                UpdateFreeSpinDisplay();
-            }
-
-            return;
-        }
-
-        if (IsFreeSpin && result.isRoundOver)
-        {
-            freeSpinsRemaining = 0;
-            freeSpinsUsed = Math.Max(freeSpinsUsed, result.serverSpinsUsed);
-            freeSpinTotalWin = Math.Max(freeSpinTotalWin, result.serverTotalRoundWin);
-            CompleteFreeSpins();
-            return;
-        }
-
-        if (!IsFreeSpin || !hasFreeGameRoundState)
-        {
-            return;
-        }
-
-        freeSpinsRemaining = Math.Max(0, reportedRemaining);
-        freeSpinsUsed = Math.Max(0, result.serverSpinsUsed);
-        if (result.serverTotalSpins > 0)
-        {
-            freeSpinsTotal = result.serverTotalSpins;
-        }
-
-        freeSpinTotalWin = Math.Max(freeSpinTotalWin, result.serverTotalRoundWin);
-
-        if (result.isRoundOver || reportedRemaining <= 0)
-        {
-            CompleteFreeSpins();
-            return;
-        }
-
-        UpdateFreeSpinDisplay();
-    }
-
-    private void BeginFreeSpins(
-        int remaining,
-        int used,
-        int total,
-        double totalWin,
-        SpinResult triggerResult)
-    {
-        WasAutoSpinOn = IsAutoSpin;
-        IsFreeSpin = true;
-        waitingForFreeSpinStart = true;
-        waitingForFreeSpinTake = false;
-        freeSpinsRemaining = Math.Max(0, remaining);
-        freeSpinsUsed = Math.Max(0, used);
-        freeSpinsTotal = Math.Max(1, total);
-        freeSpinTotalWin = Math.Max(0d, totalWin);
-
-        if (triggerResult != null)
-        {
-            onFreeSpinsTriggered?.Invoke(triggerResult);
-        }
-
-        UpdateFreeSpinDisplay();
-        SetControlState();
-    }
-
-    private void StartFirstFreeSpin()
-    {
-        if (!waitingForFreeSpinStart || !IsFreeSpin || freeSpinsRemaining <= 0)
-        {
-            return;
-        }
-
-        PlayAudio(buttonAudio);
-        waitingForFreeSpinStart = false;
-        UpdateFreeSpinDisplay();
-        SetControlState();
-
-        if (freeSpinRoutine == null)
-        {
-            freeSpinRoutine = StartCoroutine(FreeSpinCoroutine());
-        }
-    }
-
-    private void CompleteFreeSpins()
-    {
-        IsFreeSpin = false;
-        waitingForFreeSpinStart = false;
-        waitingForFreeSpinTake = true;
-        freeSpinsRemaining = 0;
-
-        if (freeSpinTotalWin > 0d)
-        {
-            SetWinAmount(freeSpinTotalWin, true);
-        }
-
-        UpdateFreeSpinDisplay();
-        SetControlState();
-    }
-
-    private void TakeFreeSpinWin()
-    {
-        if (!waitingForFreeSpinTake)
-        {
-            return;
-        }
-
-        PlayAudio(buttonAudio);
-        waitingForFreeSpinTake = false;
-        WasAutoSpinOn = false;
-        freeSpinsUsed = 0;
-        freeSpinsTotal = 0;
-        freeSpinTotalWin = 0d;
-        UpdateFreeSpinDisplay();
-        SetControlState();
-    }
-
-    private IEnumerator FreeSpinCoroutine()
-    {
-        yield return new WaitUntil(() => !IsSpinning);
-        yield return new WaitForSecondsRealtime(0.75f);
-
-        while (IsFreeSpin && freeSpinsRemaining > 0)
-        {
-            if (!TryStartSpin(true))
-            {
-                if (waitingForLateResult)
-                {
-                    yield return new WaitUntil(() => !waitingForLateResult || shuttingDown);
-                    if (!shuttingDown)
-                    {
-                        continue;
-                    }
-                }
-
-                break;
-            }
-
-            yield return new WaitUntil(() => !IsSpinning);
-
-            if (IsFreeSpin && freeSpinsRemaining > 0)
-            {
-                yield return new WaitForSecondsRealtime(autoSpinGap);
-            }
-        }
-
-        if (freeSpinsRemaining <= 0 && !waitingForFreeSpinTake)
-        {
-            IsFreeSpin = false;
-            freeSpinsRemaining = 0;
-        }
-
-        freeSpinRoutine = null;
-        UpdateFreeSpinDisplay();
-        SetControlState();
-    }
-
-    private void OpenAutoplayPanelFromHold()
-    {
-        if (AutoPlayPanel == null || IsSpinning || IsAutoSpin || IsFreeSpin || waitingForLateResult ||
-            waitingForFreeSpinStart || waitingForFreeSpinTake)
-        {
-            return;
-        }
-
-        AutoPlayPanel.SetActive(true);
-        PlayAudio(buttonAudio);
-    }
-
-    #endregion
-
-    #region Bet and speed controls
-
-    private void ChangeBet(bool increase)
-    {
-        if (IsSpinning || IsAutoSpin || IsFreeSpin || waitingForFreeSpinStart || waitingForFreeSpinTake ||
-            gameConfig?.availableBets == null || gameConfig.availableBets.Count == 0)
-        {
-            return;
-        }
-
-        PlayAudio(buttonAudio);
-        int direction = increase ? 1 : -1;
-        BetCounter = (BetCounter + direction + gameConfig.availableBets.Count) % gameConfig.availableBets.Count;
-        RefreshBetValues();
-    }
-
-    private void RefreshBetValues()
-    {
-        if (gameConfig?.availableBets == null || gameConfig.availableBets.Count == 0)
-        {
-            currentLineBet = 0d;
-            currentTotalBet = 0d;
-            return;
-        }
-
-        BetCounter = Mathf.Clamp(BetCounter, 0, gameConfig.availableBets.Count - 1);
-        currentLineBet = gameConfig.availableBets[BetCounter];
-        double divisor = gameConfig.creditDivisor > 0d ? gameConfig.creditDivisor : 1d;
-        currentTotalBet = currentLineBet * divisor;
-
-        if (LineBet_text != null)
-        {
-            LineBet_text.text = FormatAmount(currentLineBet);
-        }
-
-        if (TotalBet_text != null)
-        {
-            TotalBet_text.text = FormatAmount(currentTotalBet);
-        }
-
-        CopyStateToGameManager();
-    }
-
-    private void TurboToggle()
-    {
-        SpinSpeed nextSpeed = spinSpeed == SpinSpeed.Normal
-            ? SpinSpeed.Turbo
-            : spinSpeed == SpinSpeed.Turbo
-                ? SpinSpeed.QuickSpin
-                : SpinSpeed.Normal;
-
-        SetSpeed(nextSpeed);
-    }
-
-    private void SetSpeed(SpinSpeed speed, bool playSound = true)
-    {
-        if (IsSpinning)
-        {
-            return;
-        }
-
-        spinSpeed = speed;
-        if (playSound)
-        {
-            PlayAudio(buttonAudio);
-        }
-
-        if (NormalSpeed_Button != null)
-        {
-            NormalSpeed_Button.gameObject.SetActive(spinSpeed == SpinSpeed.Normal);
-        }
-
-        if (FastSpeed_Button != null)
-        {
-            FastSpeed_Button.gameObject.SetActive(spinSpeed == SpinSpeed.Turbo);
-        }
-
-        if (SkipSpeed_Button != null)
-        {
-            SkipSpeed_Button.gameObject.SetActive(spinSpeed == SpinSpeed.QuickSpin);
-        }
-    }
-
-    #endregion
-
     #region Results, wins and compatibility hooks
-
-    internal void UpdateBalanceDisplay(double newBalance)
-    {
-        currentBalance = Math.Max(0d, newBalance);
-        if (playerData == null)
-        {
-            playerData = new PlayerData();
-        }
-
-        playerData.balance = currentBalance;
-        UpdateBalanceText(currentBalance);
-    }
 
     internal void InitializeMatrix()
     {
         int rowCount = GetRowCount();
         ApplyMatrix(GenerateRandomMatrix(rowCount));
-    }
-
-    internal void SetInitialUI()
-    {
-        RefreshBetValues();
-        UpdateBalanceText(currentBalance);
-        SetWinAmount(0d, false);
-        UpdateWinLineCount(gameConfig != null ? gameConfig.paylineCount : 0);
-        UpdateFreeSpinDisplay();
-        SetControlState();
     }
 
     internal void CheckWinPopups()
@@ -1679,13 +1521,14 @@ public class SlotBehaviour : MonoBehaviour
     private void CheckWinPopups(SpinResult result)
     {
         double win = result.grandTotalWin > 0d ? result.grandTotalWin : result.winAmount;
-        if (win <= 0d || currentTotalBet <= 0d)
+        double totalBet = gameManager != null ? gameManager.CurrentTotalBet : 0d;
+        if (win <= 0d || totalBet <= 0d)
         {
             CheckPopups = false;
             return;
         }
 
-        double multiplier = win / currentTotalBet;
+        double multiplier = win / totalBet;
         int tier = multiplier >= 15d ? 3 : multiplier >= 10d ? 2 : multiplier >= 5d ? 1 : 0;
         CheckPopups = tier > 0;
         if (tier > 0)
@@ -1694,65 +1537,110 @@ public class SlotBehaviour : MonoBehaviour
         }
     }
 
-    internal void CallCloseSocket()
-    {
-        StopAutoSpin();
-        SocketManager?.CloseSocket();
-    }
-
     private void StartResultAnimations(SpinResult result)
     {
         StopWinningAnimations();
         if (result == null)
         {
+            autoplayRoundInProgress = false;
+            CompleteRequiredResultPresentation();
             return;
         }
 
-        bool loopIndividualLines = !IsAutoSpin && !IsFreeSpin && !result.isFreeSpinResult &&
-                                   (result.freeSpinData == null || !result.freeSpinData.isTriggered);
+        lastPresentedResult = result;
+        bool loopIndividualLines = !autoplayRoundInProgress;
+        requiredPresentationCompletionRaised = false;
+        resultPresentationInProgress = true;
         winAnimationRoutine = StartCoroutine(PlayResultAnimations(result, loopIndividualLines));
     }
 
     private IEnumerator PlayResultAnimations(SpinResult result, bool loopIndividualLines)
     {
+        // Let the reel-stop callback reach GameManager before a zero-duration
+        // result presentation can report completion in this same frame.
+        yield return null;
+
         HashSet<int> featurePositions = GetSantaFeaturePositions(result);
         if (featurePositions.Count > 0)
         {
-            yield return PulseSymbolPositions(featurePositions, singleWinLineDuration * 0.75f);
+            yield return AnimateSymbolPositions(featurePositions, 1, singleWinLineDuration * 0.75f);
         }
 
-        HashSet<int> allWinPositions = GetWinningPositions(result.winLines);
+        double totalWin = result.grandTotalWin > 0d ? result.grandTotalWin : result.winAmount;
+        yield return PlayTwoPhaseWinLines(result.winLines, totalWin, loopIndividualLines, CompleteRequiredResultPresentation);
+        resultPresentationInProgress = false;
+        autoplayRoundInProgress = false;
+        winAnimationRoutine = null;
+        CompleteRequiredResultPresentation();
+    }
+
+    private void CompleteRequiredResultPresentation()
+    {
+        resultPresentationInProgress = false;
+        autoplayRoundInProgress = false;
+        if (requiredPresentationCompletionRaised)
+        {
+            return;
+        }
+
+        requiredPresentationCompletionRaised = true;
+        RequiredPresentationCompleted?.Invoke(lastPresentedResult);
+    }
+
+    internal void ShowWinLineAnimation(List<WinLine> winLines, Action onComplete)
+    {
+        StopWinningAnimations();
+        double totalWin = winLines != null ? winLines.Where(line => line != null).Sum(line => line.winAmount) : 0d;
+        winAnimationRoutine = StartCoroutine(PlayTwoPhaseWinLines(winLines, totalWin, true, onComplete));
+    }
+
+    private IEnumerator PlayTwoPhaseWinLines(
+        List<WinLine> winLines,
+        double totalWin,
+        bool loopIndividualLines,
+        Action onPhaseOneComplete)
+    {
+        HashSet<int> allWinPositions = GetWinningPositions(winLines);
         if (allWinPositions.Count > 0)
         {
-            yield return PulseSymbolPositions(allWinPositions, allWinsDuration);
+            ShowPhase1TotalWin(totalWin);
+            int phaseOneLoops = autoplayRoundInProgress ? 1 : Mathf.Max(1, winSymbolLoopCount);
+            yield return AnimateSymbolPositions(allWinPositions, phaseOneLoops, allWinsDuration);
         }
 
-        if (!loopIndividualLines || result.winLines == null || result.winLines.Count == 0)
+        onPhaseOneComplete?.Invoke();
+        HidePhase1TotalWinText();
+
+        if (!loopIndividualLines || winLines == null || winLines.Count == 0)
         {
-            winAnimationRoutine = null;
             yield break;
         }
 
         while (!shuttingDown && !IsSpinning)
         {
-            foreach (WinLine winLine in result.winLines)
+            foreach (WinLine winLine in winLines)
             {
                 if (shuttingDown || IsSpinning)
                 {
-                    winAnimationRoutine = null;
                     yield break;
                 }
 
                 if (winLine?.positions != null && winLine.positions.Count > 0)
                 {
-                    yield return PulseSymbolPositions(
+                    int firstPosition = winLine.positions[0];
+                    int reelCount = GetReelCount();
+                    if (winLines.Count > 1)
+                    {
+                        ShowWinLineTextOnIcon(firstPosition % reelCount, firstPosition / reelCount, winLine.winAmount);
+                    }
+                    yield return AnimateSymbolPositions(
                         new HashSet<int>(winLine.positions),
+                        Mathf.Max(1, winSymbolLoopCount),
                         singleWinLineDuration);
+                    HideAllWinLineTexts();
                 }
             }
         }
-
-        winAnimationRoutine = null;
     }
 
     private HashSet<int> GetSantaFeaturePositions(SpinResult result)
@@ -1760,6 +1648,38 @@ public class SlotBehaviour : MonoBehaviour
         HashSet<int> positions = new HashSet<int>();
         int reelCount = gameConfig != null && gameConfig.reelCount > 0 ? gameConfig.reelCount : DefaultReelCount;
         int rowCount = GetRowCount();
+
+        if (result.resultMatrix != null && gameConfig != null)
+        {
+            HashSet<int> wildSymbolIds = gameConfig.symbols != null
+                ? new HashSet<int>(gameConfig.symbols
+                    .Where(symbol => symbol != null && symbol.isWild)
+                    .Select(symbol => symbol.id))
+                : new HashSet<int>();
+
+            if (wildSymbolIds.Count == 0 && gameConfig.wildSymbolIds != null)
+            {
+                wildSymbolIds.UnionWith(gameConfig.wildSymbolIds);
+            }
+
+            for (int column = 0; column < result.resultMatrix.Count; column++)
+            {
+                List<int> matrixColumn = result.resultMatrix[column];
+                if (matrixColumn == null)
+                {
+                    continue;
+                }
+
+                for (int row = 0; row < matrixColumn.Count; row++)
+                {
+                    int symbolId = matrixColumn[row];
+                    if (wildSymbolIds.Contains(symbolId) || symbolId == gameConfig.scatterSymbolId)
+                    {
+                        positions.Add(row * reelCount + column);
+                    }
+                }
+            }
+        }
 
         if (result.expandedWildReels != null)
         {
@@ -1815,39 +1735,418 @@ public class SlotBehaviour : MonoBehaviour
         return positions;
     }
 
-    private IEnumerator PulseSymbolPositions(HashSet<int> positions, float duration)
+    internal void AnimateAllScatters(int loopCount)
     {
-        float safeDuration = Mathf.Max(0.02f, duration);
-        float halfDuration = safeDuration * 0.5f;
-        int reelCount = gameConfig != null && gameConfig.reelCount > 0 ? gameConfig.reelCount : DefaultReelCount;
-        int rowCount = GetRowCount();
-
-        foreach (int position in positions)
+        if (gameConfig == null || currentDisplayMatrix == null)
         {
-            int row = position / reelCount;
-            int reelIndex = position % reelCount;
-            if (reelIndex < 0 || reelIndex >= reels.Count || row < 0 || row >= rowCount)
+            return;
+        }
+
+        HashSet<int> positions = GetPositionsForSymbolId(gameConfig.scatterSymbolId);
+        StartOneShotSymbolAnimation(positions, loopCount, singleWinLineDuration);
+    }
+
+    internal void AnimateSantaFeatureSymbols(int loopCount = 1)
+    {
+        if (lastPresentedResult == null)
+        {
+            return;
+        }
+
+        StartOneShotSymbolAnimation(
+            GetSantaFeaturePositions(lastPresentedResult),
+            loopCount,
+            singleWinLineDuration);
+    }
+
+    internal void AnimateSymbolSingleLoop(int column, int row, int loopCount = 1)
+    {
+        int reelCount = GetReelCount();
+        if (column < 0 || column >= reelCount || row < 0 || row >= GetRowCount())
+        {
+            return;
+        }
+
+        StartOneShotSymbolAnimation(
+            new HashSet<int> { row * reelCount + column },
+            loopCount,
+            singleWinLineDuration);
+    }
+
+    private void StartOneShotSymbolAnimation(HashSet<int> positions, int loopCount, float duration)
+    {
+        if (positions == null || positions.Count == 0)
+        {
+            return;
+        }
+
+        StopWinningAnimations();
+        winAnimationRoutine = StartCoroutine(PlayOneShotSymbolAnimation(positions, loopCount, duration));
+    }
+
+    private IEnumerator PlayOneShotSymbolAnimation(HashSet<int> positions, int loopCount, float duration)
+    {
+        yield return AnimateSymbolPositions(positions, Mathf.Max(1, loopCount), duration);
+        winAnimationRoutine = null;
+    }
+
+    private HashSet<int> GetPositionsForSymbolId(int symbolId)
+    {
+        HashSet<int> positions = new HashSet<int>();
+        if (currentDisplayMatrix == null)
+        {
+            return positions;
+        }
+
+        int reelCount = GetReelCount();
+        for (int column = 0; column < currentDisplayMatrix.Count; column++)
+        {
+            List<int> matrixColumn = currentDisplayMatrix[column];
+            if (matrixColumn == null)
             {
                 continue;
             }
 
-            ReelRuntime reel = reels[reelIndex];
-            int visibleStart = Mathf.Max(0, reel.symbols.Count - rowCount);
-            Image symbol = reel.symbols[visibleStart + row];
-            symbol.rectTransform.localScale = Vector3.one;
+            for (int row = 0; row < matrixColumn.Count; row++)
+            {
+                if (matrixColumn[row] == symbolId)
+                {
+                    positions.Add(row * reelCount + column);
+                }
+            }
+        }
+
+        return positions;
+    }
+
+    private IEnumerator AnimateSymbolPositions(HashSet<int> positions, int loopCount, float minimumDuration)
+    {
+        List<SymbolAnimationRuntime> activeSymbols = new List<SymbolAnimationRuntime>();
+        int maxFrameCount = 1;
+
+        foreach (int position in positions)
+        {
+            if (!TryGetSymbolAtPosition(position, out Image symbol, out int symbolId))
+            {
+                continue;
+            }
+
+            List<Sprite> frames = GetAnimationFrames(symbolId);
+            if (frames == null || frames.Count == 0)
+            {
+                frames = BuildAnimationFrames(null, symbol.sprite);
+            }
+
+            RememberAnimatedSymbolState(symbol);
+            Image animationImage = symbol;
+            GameObject overlayRoot = null;
+            if (TryActivateWinAnimationSlot(position, frames[0], out WinAnimationSlotRuntime animationSlot))
+            {
+                animationImage = animationSlot.image;
+                overlayRoot = animationSlot.root;
+                Color baseColor = symbol.color;
+                symbol.color = new Color(baseColor.r, baseColor.g, baseColor.b, 0f);
+            }
+            else if (!missingWinAnimationSlotWarningShown)
+            {
+                missingWinAnimationSlotWarningShown = true;
+                Debug.LogWarning("[SlotBehaviour] One or more win positions have no separate animation slot; those positions will animate on the reel Image.");
+            }
+
+            activeSymbols.Add(new SymbolAnimationRuntime
+            {
+                baseImage = symbol,
+                animationImage = animationImage,
+                overlayRoot = overlayRoot,
+                frames = frames
+            });
+            maxFrameCount = Mathf.Max(maxFrameCount, frames.Count);
+        }
+
+        if (activeSymbols.Count == 0)
+        {
+            yield break;
+        }
+
+        int safeLoopCount = Mathf.Max(1, loopCount);
+        int totalFrameSteps = Mathf.Max(1, maxFrameCount * safeLoopCount);
+        float safeDuration = Mathf.Max(0.02f, minimumDuration);
+        float frameDuration = Mathf.Max(winSpriteFrameDuration, safeDuration / totalFrameSteps);
+        float totalDuration = frameDuration * totalFrameSteps;
+        float halfPulseDuration = totalDuration / (safeLoopCount * 2f);
+
+        foreach (SymbolAnimationRuntime runtime in activeSymbols)
+        {
+            runtime.animationImage.rectTransform.localScale = Vector3.one;
 
             Sequence pulse = DOTween.Sequence().SetUpdate(true);
-            pulse.Append(symbol.rectTransform.DOScale(winningSymbolScale, halfDuration).SetEase(Ease.OutQuad));
-            pulse.Append(symbol.rectTransform.DOScale(1f, halfDuration).SetEase(Ease.InQuad));
+            pulse.Append(runtime.animationImage.rectTransform.DOScale(winningSymbolScale, halfPulseDuration).SetEase(Ease.OutQuad));
+            pulse.Append(runtime.animationImage.rectTransform.DOScale(1f, halfPulseDuration).SetEase(Ease.InQuad));
+            pulse.SetLoops(safeLoopCount, LoopType.Restart);
             winTweens.Add(pulse);
         }
 
-        yield return new WaitForSecondsRealtime(safeDuration);
+        for (int frameStep = 0; frameStep < totalFrameSteps; frameStep++)
+        {
+            foreach (SymbolAnimationRuntime runtime in activeSymbols)
+            {
+                if (runtime.animationImage != null && runtime.frames.Count > 0)
+                {
+                    runtime.animationImage.sprite = runtime.frames[frameStep % runtime.frames.Count];
+                }
+            }
+
+            yield return new WaitForSecondsRealtime(frameDuration);
+        }
+
+        foreach (SymbolAnimationRuntime runtime in activeSymbols)
+        {
+            runtime.animationImage?.rectTransform.DOKill();
+            if (runtime.animationImage != null)
+            {
+                runtime.animationImage.rectTransform.localScale = Vector3.one;
+            }
+
+            if (runtime.overlayRoot != null)
+            {
+                runtime.overlayRoot.SetActive(false);
+            }
+
+            RestoreAnimatedSymbol(runtime.baseImage);
+        }
+
+        RefreshWinAnimationRootVisibility();
         winTweens.RemoveAll(tween => tween == null || !tween.IsActive());
+    }
+
+    private bool TryActivateWinAnimationSlot(
+        int flatPosition,
+        Sprite firstFrame,
+        out WinAnimationSlotRuntime animationSlot)
+    {
+        if (!winAnimationSlots.TryGetValue(flatPosition, out animationSlot) ||
+            animationSlot?.root == null || animationSlot.image == null)
+        {
+            return false;
+        }
+
+        if (winAnimationRoot != null)
+        {
+            winAnimationRoot.gameObject.SetActive(true);
+        }
+
+        animationSlot.root.SetActive(true);
+        animationSlot.image.gameObject.SetActive(true);
+        animationSlot.image.sprite = firstFrame;
+        animationSlot.image.color = Color.white;
+        animationSlot.image.rectTransform.localScale = Vector3.one;
+        return true;
+    }
+
+    private void RefreshWinAnimationRootVisibility()
+    {
+        if (winAnimationRoot == null)
+        {
+            return;
+        }
+
+        bool hasActiveSlot = winAnimationSlots.Values.Any(slot => slot?.root != null && slot.root.activeSelf);
+        winAnimationRoot.gameObject.SetActive(hasActiveSlot);
+    }
+
+    private void HideAllWinAnimationSlots()
+    {
+        foreach (WinAnimationSlotRuntime slot in winAnimationSlots.Values)
+        {
+            if (slot?.image != null)
+            {
+                slot.image.rectTransform.DOKill();
+                slot.image.rectTransform.localScale = Vector3.one;
+                slot.image.gameObject.SetActive(false);
+            }
+
+            if (slot?.root != null)
+            {
+                slot.root.SetActive(false);
+            }
+        }
+
+        if (winAnimationRoot != null)
+        {
+            winAnimationRoot.gameObject.SetActive(false);
+        }
+    }
+
+    private List<Sprite> GetAnimationFrames(int symbolId)
+    {
+        if (serverSymbolMappingActive)
+        {
+            return serverAnimationFramesById.TryGetValue(symbolId, out List<Sprite> mappedFrames)
+                ? mappedFrames
+                : null;
+        }
+
+        return symbolId >= 0 && symbolId < animationSpriteArrays.Length
+            ? animationSpriteArrays[symbolId]
+            : null;
+    }
+
+    private bool TryGetSymbolAtPosition(int flatPosition, out Image symbol, out int symbolId)
+    {
+        symbol = null;
+        symbolId = -1;
+
+        int reelCount = GetReelCount();
+        int rowCount = GetRowCount();
+        int row = flatPosition / reelCount;
+        int column = flatPosition % reelCount;
+        if (column < 0 || column >= reels.Count || row < 0 || row >= rowCount ||
+            currentDisplayMatrix == null || column >= currentDisplayMatrix.Count ||
+            currentDisplayMatrix[column] == null || row >= currentDisplayMatrix[column].Count)
+        {
+            return false;
+        }
+
+        ReelRuntime reel = reels[column];
+        int visibleStart = Mathf.Max(0, reel.symbols.Count - rowCount);
+        int imageIndex = visibleStart + row;
+        if (imageIndex < 0 || imageIndex >= reel.symbols.Count)
+        {
+            return false;
+        }
+
+        symbol = reel.symbols[imageIndex];
+        symbolId = currentDisplayMatrix[column][row];
+        return symbol != null;
+    }
+
+    private void RememberAnimatedSymbolState(Image symbol)
+    {
+        if (symbol == null || animatedSymbolOriginalSprites.ContainsKey(symbol))
+        {
+            return;
+        }
+
+        animatedSymbolOriginalSprites[symbol] = symbol.sprite;
+        animatedSymbolOriginalColors[symbol] = symbol.color;
+        animatedSymbolOriginalScales[symbol] = symbol.rectTransform.localScale;
+    }
+
+    private void RestoreAnimatedSymbol(Image symbol)
+    {
+        if (symbol == null)
+        {
+            return;
+        }
+
+        if (animatedSymbolOriginalSprites.TryGetValue(symbol, out Sprite originalSprite))
+        {
+            symbol.sprite = originalSprite;
+            animatedSymbolOriginalSprites.Remove(symbol);
+        }
+
+        if (animatedSymbolOriginalColors.TryGetValue(symbol, out Color originalColor))
+        {
+            symbol.color = originalColor;
+            animatedSymbolOriginalColors.Remove(symbol);
+        }
+
+        if (animatedSymbolOriginalScales.TryGetValue(symbol, out Vector3 originalScale))
+        {
+            symbol.rectTransform.localScale = originalScale;
+            animatedSymbolOriginalScales.Remove(symbol);
+        }
+    }
+
+    private void ShowWinLineTextOnIcon(int column, int row, double winAmount)
+    {
+        int flatPosition = row * GetReelCount() + column;
+        if (!TryGetSymbolAtPosition(flatPosition, out Image symbol, out _))
+        {
+            return;
+        }
+
+        Transform textTransform = symbol.transform.Find("WinLineText");
+        TMP_Text winLineText = textTransform != null ? textTransform.GetComponent<TMP_Text>() : null;
+        if (winLineText == null)
+        {
+            return;
+        }
+
+        winLineText.text = FormatAmount(winAmount);
+        AnimateTextScaleAppear(winLineText.transform);
+    }
+
+    private void HideAllWinLineTexts()
+    {
+        foreach (ReelRuntime reel in reels)
+        {
+            foreach (Image symbol in reel.symbols)
+            {
+                Transform textTransform = symbol != null ? symbol.transform.Find("WinLineText") : null;
+                if (textTransform == null)
+                {
+                    continue;
+                }
+
+                textTransform.DOKill();
+                textTransform.localScale = Vector3.one;
+                textTransform.gameObject.SetActive(false);
+            }
+        }
+    }
+
+    private void ShowPhase1TotalWin(double totalWin)
+    {
+        if (phase1TotalWinText == null || totalWin <= 0d)
+        {
+            return;
+        }
+
+        winAmountTween?.Kill();
+        phase1TotalWinText.text = FormatAmount(totalWin);
+        AnimateTextScaleAppear(phase1TotalWinText.transform);
+    }
+
+    private void HidePhase1TotalWinText()
+    {
+        if (phase1TotalWinText == null)
+        {
+            return;
+        }
+
+        phase1TotalWinText.transform.DOKill();
+        phase1TotalWinText.transform.localScale = Vector3.one;
+        if (phase1TotalWinText != TotalWin_text)
+        {
+            phase1TotalWinText.gameObject.SetActive(false);
+        }
+    }
+
+    private void AnimateTextScaleAppear(
+        Transform textTransform,
+        float popScale = 1.2f,
+        float durationUp = 0.15f,
+        float durationDown = 0.1f)
+    {
+        if (textTransform == null)
+        {
+            return;
+        }
+
+        textTransform.DOKill();
+        textTransform.localScale = Vector3.zero;
+        textTransform.gameObject.SetActive(true);
+
+        Sequence sequence = DOTween.Sequence().SetUpdate(true);
+        sequence.Append(textTransform.DOScale(popScale, durationUp).SetEase(Ease.OutQuad));
+        sequence.Append(textTransform.DOScale(1f, durationDown).SetEase(Ease.InQuad));
+        winTweens.Add(sequence);
     }
 
     private void StopWinningAnimations()
     {
+        resultPresentationInProgress = false;
         if (winAnimationRoutine != null)
         {
             StopCoroutine(winAnimationRoutine);
@@ -1860,6 +2159,14 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         winTweens.Clear();
+        HideAllWinAnimationSlots();
+        HideAllWinLineTexts();
+        HidePhase1TotalWinText();
+
+        foreach (Image symbol in animatedSymbolOriginalSprites.Keys.ToList())
+        {
+            RestoreAnimatedSymbol(symbol);
+        }
 
         foreach (ReelRuntime reel in reels)
         {
@@ -1905,214 +2212,9 @@ public class SlotBehaviour : MonoBehaviour
             .SetUpdate(true);
     }
 
-    private double TotalWinValue()
-    {
-        if (TotalWin_text == null)
-        {
-            return 0d;
-        }
-
-        return double.TryParse(TotalWin_text.text, out double value) ? value : 0d;
-    }
-
     #endregion
 
     #region UI and cleanup helpers
-
-    private void SetControlState()
-    {
-        bool normalIdle = !IsSpinning && !IsAutoSpin && !IsFreeSpin && !waitingForLateResult &&
-                          !waitingForFreeSpinStart && !waitingForFreeSpinTake;
-        bool showManualStop = IsSpinning && !IsAutoSpin && !IsFreeSpin && spinSpeed == SpinSpeed.Normal;
-
-        if (SlotStart_Button != null)
-        {
-            SlotStart_Button.gameObject.SetActive(normalIdle);
-            SlotStart_Button.interactable = normalIdle && isInitialized;
-        }
-
-        if (StopSpin_Button != null)
-        {
-            StopSpin_Button.gameObject.SetActive(showManualStop && !stopSpinRequested);
-            StopSpin_Button.interactable = showManualStop;
-        }
-
-        if (AutoSpinStop_Button != null)
-        {
-            bool showAutoplayStop = IsAutoSpin && !IsFreeSpin && !waitingForFreeSpinStart && !waitingForFreeSpinTake;
-            AutoSpinStop_Button.gameObject.SetActive(showAutoplayStop);
-            AutoSpinStop_Button.interactable = showAutoplayStop;
-        }
-
-        if (FreeSpinStart_Button != null)
-        {
-            FreeSpinStart_Button.interactable = waitingForFreeSpinStart;
-        }
-
-        if (Take_Button != null)
-        {
-            Take_Button.gameObject.SetActive(waitingForFreeSpinTake);
-            Take_Button.interactable = waitingForFreeSpinTake;
-        }
-
-        ToggleButtonGrp(normalIdle);
-    }
-
-    private void ToggleButtonGrp(bool toggle)
-    {
-        if (TBetMinus_Button != null) TBetMinus_Button.interactable = toggle;
-        if (TBetPlus_Button != null) TBetPlus_Button.interactable = toggle;
-        if (NormalSpeed_Button != null) NormalSpeed_Button.interactable = toggle;
-        if (FastSpeed_Button != null) FastSpeed_Button.interactable = toggle;
-        if (SkipSpeed_Button != null) SkipSpeed_Button.interactable = toggle;
-    }
-
-    private void UpdateAutoplayDisplay()
-    {
-        if (AutoPlayCount_Text == null)
-        {
-            return;
-        }
-
-        bool visible = IsAutoSpin && !IsFreeSpin && !waitingForFreeSpinStart && !waitingForFreeSpinTake;
-        AutoPlayCount_Text.gameObject.SetActive(visible);
-        AutoPlayCount_Text.text = autoplaySpinsRemaining < 0 ? "∞" : autoplaySpinsRemaining.ToString();
-    }
-
-    private void UpdateFreeSpinDisplay()
-    {
-        if (FreeSpinPanel != null)
-        {
-            FreeSpinPanel.SetActive(waitingForFreeSpinStart);
-        }
-
-        if (FreeSpinCountPanel != null)
-        {
-            FreeSpinCountPanel.SetActive(IsFreeSpin && !waitingForFreeSpinStart);
-        }
-
-        if (FreeSpinWinPanel != null)
-        {
-            FreeSpinWinPanel.SetActive(waitingForFreeSpinTake);
-        }
-
-        if (Take_Button != null)
-        {
-            Take_Button.gameObject.SetActive(waitingForFreeSpinTake);
-        }
-
-        UpdateAutoplayDisplay();
-
-        SetFreeSpinNumberImage(FreeSpinCounter_Image, Math.Max(0, freeSpinsUsed));
-        SetFreeSpinNumberImage(FreeSpinTotal_Image, Math.Max(0, freeSpinsTotal));
-    }
-
-    private void CacheFreeSpinNumberSprites()
-    {
-        freeSpinNumberSprites.Clear();
-
-        foreach (Sprite sprite in Resources.FindObjectsOfTypeAll<Sprite>())
-        {
-            if (sprite == null || !sprite.name.StartsWith("numbers_", StringComparison.Ordinal) ||
-                !int.TryParse(sprite.name.Substring("numbers_".Length), out int value))
-            {
-                continue;
-            }
-
-            freeSpinNumberSprites[value] = sprite;
-        }
-
-        CacheCurrentNumberSprite(FreeSpinCounter_Image);
-        CacheCurrentNumberSprite(FreeSpinTotal_Image);
-    }
-
-    private void CacheCurrentNumberSprite(Image image)
-    {
-        Sprite sprite = image != null ? image.sprite : null;
-        if (sprite != null && sprite.name.StartsWith("numbers_", StringComparison.Ordinal) &&
-            int.TryParse(sprite.name.Substring("numbers_".Length), out int value))
-        {
-            freeSpinNumberSprites[value] = sprite;
-        }
-    }
-
-    private void SetFreeSpinNumberImage(Image image, int value)
-    {
-        if (image == null || image.sprite == null)
-        {
-            return;
-        }
-
-        int displayValue = Mathf.Clamp(value, 0, FreeSpinNumberRects.Length - 1);
-        if (displayValue != value && !freeSpinNumberRangeWarningShown)
-        {
-            freeSpinNumberRangeWarningShown = true;
-            Debug.LogWarning("[SlotBehaviour] The free-spin number artwork supports values from 0 to 11.");
-        }
-
-        if (!freeSpinNumberSprites.TryGetValue(displayValue, out Sprite sprite) || sprite == null)
-        {
-            Texture2D texture = image.sprite.texture;
-            if (texture == null)
-            {
-                return;
-            }
-
-            sprite = Sprite.Create(
-                texture,
-                FreeSpinNumberRects[displayValue],
-                new Vector2(0.5f, 0.5f),
-                image.sprite.pixelsPerUnit,
-                0,
-                SpriteMeshType.FullRect);
-            sprite.name = $"numbers_{displayValue}_runtime";
-            freeSpinNumberSprites[displayValue] = sprite;
-            generatedFreeSpinNumberSprites.Add(sprite);
-        }
-
-        image.sprite = sprite;
-    }
-
-    private void UpdateBalanceText(double balance)
-    {
-        balanceTween?.Kill();
-        if (Balance_text == null)
-        {
-            return;
-        }
-
-        bool hasPrefix = Balance_text.text.TrimStart().StartsWith("BALANCE", StringComparison.OrdinalIgnoreCase);
-        Balance_text.text = hasPrefix
-            ? $"BALANCE:  {FormatAmount(balance)}"
-            : FormatAmount(balance);
-    }
-
-    private void AnimateBalanceTo(double targetBalance)
-    {
-        balanceTween?.Kill();
-        if (Balance_text == null)
-        {
-            return;
-        }
-
-        double displayed = currentBalance;
-        bool hasPrefix = Balance_text.text.TrimStart().StartsWith("BALANCE", StringComparison.OrdinalIgnoreCase);
-        balanceTween = DOTween.To(
-                () => displayed,
-                value =>
-                {
-                    displayed = value;
-                    if (Balance_text != null)
-                    {
-                        string amount = FormatAmount(displayed);
-                        Balance_text.text = hasPrefix ? $"BALANCE:  {amount}" : amount;
-                    }
-                },
-                targetBalance,
-                0.45f)
-            .SetEase(Ease.OutCubic)
-            .SetUpdate(true);
-    }
 
     private void UpdateWinLineCount(int count)
     {
@@ -2127,8 +2229,22 @@ public class SlotBehaviour : MonoBehaviour
         return gameConfig != null && gameConfig.rowCount > 0 ? gameConfig.rowCount : DefaultRowCount;
     }
 
+    private int GetReelCount()
+    {
+        return gameConfig != null && gameConfig.reelCount > 0
+            ? gameConfig.reelCount
+            : reels.Count > 0
+                ? reels.Count
+                : DefaultReelCount;
+    }
+
     private List<List<int>> GenerateRandomMatrix(int rowCount)
     {
+        if (serverSymbolMappingActive && mappedServerSymbolIds.Count > 0)
+        {
+            return GenerateRandomMatrixFromIds(rowCount, mappedServerSymbolIds);
+        }
+
         int symbolCount = myImages != null && myImages.Length > 0
             ? myImages.Length
             : gameConfig != null && gameConfig.symbolCount > 0
@@ -2143,6 +2259,24 @@ public class SlotBehaviour : MonoBehaviour
             for (int row = 0; row < rowCount; row++)
             {
                 column.Add(UnityEngine.Random.Range(0, symbolCount));
+            }
+
+            matrix.Add(column);
+        }
+
+        return matrix;
+    }
+
+    private List<List<int>> GenerateRandomMatrixFromIds(int rowCount, List<int> symbolIds)
+    {
+        List<List<int>> matrix = new List<List<int>>();
+        int reelCount = reels.Count > 0 ? reels.Count : DefaultReelCount;
+        for (int reelIndex = 0; reelIndex < reelCount; reelIndex++)
+        {
+            List<int> column = new List<int>();
+            for (int row = 0; row < rowCount; row++)
+            {
+                column.Add(symbolIds[UnityEngine.Random.Range(0, symbolIds.Count)]);
             }
 
             matrix.Add(column);
@@ -2206,8 +2340,6 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         activeTweens.Clear();
-        balanceTween?.Kill();
-        balanceTween = null;
         winAmountTween?.Kill();
         winAmountTween = null;
     }
@@ -2216,7 +2348,38 @@ public class SlotBehaviour : MonoBehaviour
 }
 
 [Serializable]
-public class SlotImage
+internal sealed class WinAnimationColumn
 {
-    public List<Image> slotImages = new List<Image>();
+    [Tooltip("Top, middle and bottom child Images named Animations.")]
+    [SerializeField] internal Image[] rows = new Image[3];
+}
+
+[Serializable]
+internal class SlotImage
+{
+    [SerializeField] internal List<Image> slotImages = new List<Image>();
+}
+
+public sealed class SymbolButtonHandler : MonoBehaviour, IPointerClickHandler
+{
+    private int column;
+    private int row;
+    private SlotBehaviour slotBehaviour;
+
+    internal void Init(int symbolColumn, int symbolRow, SlotBehaviour owner)
+    {
+        column = symbolColumn;
+        row = symbolRow;
+        slotBehaviour = owner;
+    }
+
+    void IPointerClickHandler.OnPointerClick(PointerEventData eventData)
+    {
+        if (slotBehaviour == null)
+        {
+            return;
+        }
+
+        slotBehaviour.OnSymbolClicked(column, row, transform as RectTransform);
+    }
 }

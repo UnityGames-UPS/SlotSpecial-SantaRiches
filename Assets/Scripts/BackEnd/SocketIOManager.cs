@@ -227,9 +227,9 @@ public class SocketIOManager : MonoBehaviour
     {
         Debug.LogError($"[SocketIO] Error: {err.message}");
 
-        if (!gameManager.isInitialized)
+        if (!gameManager.IsInitialized)
         {
-            gameManager.initializationFailed = true;
+            gameManager.MarkInitializationFailed();
         }
 
         if (!string.IsNullOrEmpty(err.message) && err.message.Contains("Session expired"))
@@ -262,7 +262,7 @@ public class SocketIOManager : MonoBehaviour
             var initData = JsonConvert.DeserializeObject<InitData>(jsonData);
             var gameConfig = InitDataConverter.ConvertToGameConfig(initData);
             var playerData = InitDataConverter.ConvertToPlayerData(initData.player);
-            var initialMatrix = GenerateRandomMatrix(gameConfig.rowCount);
+            var initialMatrix = GenerateRandomMatrix(gameConfig);
 
             isInitialized = true;
 
@@ -285,7 +285,7 @@ public class SocketIOManager : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogError($"[SocketIO] Init parse failed: {e.Message}");
-            gameManager.initializationFailed = true;
+            gameManager.MarkInitializationFailed();
             if (popupManager != null)
             {
                 popupManager.ShowServerError("Failed to parse game initialization data.");
@@ -309,12 +309,13 @@ public class SocketIOManager : MonoBehaviour
             if (!serverResponse.success)
             {
                 Debug.LogError("[SocketIO] Spin failed");
+                gameManager?.OnSpinRequestFailed("The server rejected the spin request.");
                 return;
             }
 
-            double currentBalance = gameManager.playerData.balance;
-            double betAmount = gameManager.currentBetAmount;
-            GameConfig gameConfig = gameManager.gameConfig;
+            double currentBalance = gameManager.PlayerData.balance;
+            double betAmount = gameManager.CurrentBetAmount;
+            GameConfig gameConfig = gameManager.GameConfig;
 
             SpinResult result = InitDataConverter.ConvertServerResponseToSpinResult(
                 serverResponse,
@@ -323,13 +324,14 @@ public class SocketIOManager : MonoBehaviour
                 gameConfig
             );
 
-            result.playerData.currentBetIndex = gameManager.currentBetIndex;
+            result.playerData.currentBetIndex = gameManager.CurrentBetIndex;
 
             gameManager.OnSpinResultReceived(result);
         }
         catch (Exception e)
         {
             Debug.LogError($"[SocketIO] Result parse failed: {e.Message}");
+            gameManager?.OnSpinRequestFailed("Failed to read the spin result from the server.");
         }
     }
 
@@ -351,14 +353,9 @@ public class SocketIOManager : MonoBehaviour
         {
             var syncData = JsonConvert.DeserializeObject<BalanceSyncData>(jsonData);
             
-            if (gameManager != null && gameManager.playerData != null)
+            if (gameManager != null)
             {
-                gameManager.playerData.balance = syncData.balance;
-                
-                if (uiManager != null)
-                {
-                    uiManager.UpdateBalanceDisplay();
-                }
+                gameManager.UpdateBalanceFromServer(syncData.balance);
             }
         }
         catch (Exception e)
@@ -631,15 +628,38 @@ public class SocketIOManager : MonoBehaviour
     }
 
     #endregion
-    private List<List<int>> GenerateRandomMatrix(int rowCount)
+    private List<List<int>> GenerateRandomMatrix(GameConfig gameConfig)
     {
+        int rowCount = gameConfig != null && gameConfig.rowCount > 0 ? gameConfig.rowCount : 3;
+        int reelCount = gameConfig != null && gameConfig.reelCount > 0 ? gameConfig.reelCount : 5;
+        var symbolIds = new List<int>();
+        if (gameConfig?.symbols != null)
+        {
+            foreach (SymbolInfo symbol in gameConfig.symbols)
+            {
+                if (symbol != null && !symbolIds.Contains(symbol.id))
+                {
+                    symbolIds.Add(symbol.id);
+                }
+            }
+        }
+
+        if (symbolIds.Count == 0)
+        {
+            int symbolCount = gameConfig != null && gameConfig.symbolCount > 0 ? gameConfig.symbolCount : 1;
+            for (int symbolId = 0; symbolId < symbolCount; symbolId++)
+            {
+                symbolIds.Add(symbolId);
+            }
+        }
+
         var matrix = new List<List<int>>();
-        for (int col = 0; col < 5; col++)
+        for (int col = 0; col < reelCount; col++)
         {
             var column = new List<int>();
             for (int row = 0; row < rowCount; row++)
             {
-                column.Add(UnityEngine.Random.Range(0, 10));
+                column.Add(symbolIds[UnityEngine.Random.Range(0, symbolIds.Count)]);
             }
             matrix.Add(column);
         }
