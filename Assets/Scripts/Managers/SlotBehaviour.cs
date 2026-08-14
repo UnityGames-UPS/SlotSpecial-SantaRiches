@@ -53,21 +53,6 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField] private Sprite spriteSanta;
     [SerializeField] private Sprite spriteSocks;
 
-    [Header("Symbol Animation Sprites")]
-    [SerializeField] private List<Sprite> animSprites10 = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesA = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesBell = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesCandle = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesCup = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesDeer = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesGift = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesJ = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesK = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesMoon = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesQ = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesSanta = new List<Sprite>();
-    [SerializeField] private List<Sprite> animSpritesSocks = new List<Sprite>();
-
     [HideInInspector]
     [SerializeField] private Sprite[] myImages = Array.Empty<Sprite>();
 
@@ -96,24 +81,12 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField, Min(0.01f)] private float stopOvershootDuration = 0.16f;
     [SerializeField, Min(0.01f)] private float stopSettleDuration = 0.22f;
 
-    [Header("Win Presentation")]
-    [SerializeField, Min(0.01f)] private float allWinsDuration = 0.8f;
+    [Header("Win Line Presentation")]
     [SerializeField, Min(0.01f)] private float singleWinLineDuration = 0.7f;
-    [SerializeField, Min(1f)] private float winningSymbolScale = 1.12f;
-    [SerializeField, Min(0.02f)] private float winSpriteFrameDuration = 0.08f;
-    [SerializeField, Min(1)] private int winSymbolLoopCount = 3;
-    [SerializeField] private TMP_Text phase1TotalWinText;
 
-    [Header("Win Animation Slot Images")]
-    [Tooltip("Five columns with three rows each. Assign the child Image named Animations from every Slot1 cell.")]
-    [SerializeField] private WinAnimationColumn[] winAnimationColumns =
-    {
-        new WinAnimationColumn(),
-        new WinAnimationColumn(),
-        new WinAnimationColumn(),
-        new WinAnimationColumn(),
-        new WinAnimationColumn()
-    };
+    [Header("Win Line Visuals")]
+    [Tooltip("Result line ID 0 maps to element 0 (Line_1), ID 1 maps to element 1 (Line_2), and so on.")]
+    [SerializeField] private GameObject[] winLineObjects = Array.Empty<GameObject>();
 
     [Header("Audio (Optional)")]
     [SerializeField] private AudioSource spinAudio;
@@ -144,19 +117,11 @@ public class SlotBehaviour : MonoBehaviour
 
     private readonly List<ReelRuntime> reels = new List<ReelRuntime>();
     private readonly List<Tween> activeTweens = new List<Tween>();
-    private readonly List<Tween> winTweens = new List<Tween>();
-    private readonly Dictionary<Image, Sprite> animatedSymbolOriginalSprites = new Dictionary<Image, Sprite>();
-    private readonly Dictionary<Image, Color> animatedSymbolOriginalColors = new Dictionary<Image, Color>();
-    private readonly Dictionary<Image, Vector3> animatedSymbolOriginalScales = new Dictionary<Image, Vector3>();
-    private readonly Dictionary<int, WinAnimationSlotRuntime> winAnimationSlots = new Dictionary<int, WinAnimationSlotRuntime>();
     private readonly Dictionary<int, Sprite> serverSpritesById = new Dictionary<int, Sprite>();
-    private readonly Dictionary<int, List<Sprite>> serverAnimationFramesById = new Dictionary<int, List<Sprite>>();
     private readonly List<int> mappedServerSymbolIds = new List<int>();
     private readonly HashSet<int> reportedUnknownSymbolIds = new HashSet<int>();
-    private List<Sprite>[] animationSpriteArrays = Array.Empty<List<Sprite>>();
-    private Transform winAnimationRoot;
+    private readonly HashSet<int> reportedMissingWinLineIds = new HashSet<int>();
     private bool serverSymbolMappingActive;
-    private bool missingWinAnimationSlotWarningShown;
 
     internal List<List<int>> currentDisplayMatrix;
 
@@ -193,20 +158,6 @@ public class SlotBehaviour : MonoBehaviour
         internal int completedCycles;
     }
 
-    private sealed class SymbolAnimationRuntime
-    {
-        internal Image baseImage;
-        internal Image animationImage;
-        internal GameObject overlayRoot;
-        internal List<Sprite> frames;
-    }
-
-    private sealed class WinAnimationSlotRuntime
-    {
-        internal GameObject root;
-        internal Image image;
-    }
-
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeController()
     {
@@ -232,7 +183,7 @@ public class SlotBehaviour : MonoBehaviour
         BuildSymbolSpriteArrays();
         BindGameManagerEvents();
         BuildReelCache();
-        BuildWinAnimationSlotCache();
+        HideAllWinLineVisuals();
     }
 
     private void Start()
@@ -277,7 +228,6 @@ public class SlotBehaviour : MonoBehaviour
     {
         TotalWin_text = TotalWin_text != null ? TotalWin_text : FindNamedText("WinAmount", "TotalWin");
         WinLinesCount_Text = WinLinesCount_Text != null ? WinLinesCount_Text : FindNamedText("WinLinesCount");
-        phase1TotalWinText = phase1TotalWinText != null ? phase1TotalWinText : TotalWin_text;
 
         SetDeferredFreeSpinUiActive(false);
     }
@@ -315,23 +265,6 @@ public class SlotBehaviour : MonoBehaviour
             spriteSanta,
             spriteSocks
         };
-
-        animationSpriteArrays = new[]
-        {
-            BuildAnimationFrames(animSprites10, sprite10),
-            BuildAnimationFrames(animSpritesA, spriteA),
-            BuildAnimationFrames(animSpritesBell, spriteBell),
-            BuildAnimationFrames(animSpritesCandle, spriteCandle),
-            BuildAnimationFrames(animSpritesCup, spriteCup),
-            BuildAnimationFrames(animSpritesDeer, spriteDeer),
-            BuildAnimationFrames(animSpritesGift, spriteGift),
-            BuildAnimationFrames(animSpritesJ, spriteJ),
-            BuildAnimationFrames(animSpritesK, spriteK),
-            BuildAnimationFrames(animSpritesMoon, spriteMoon),
-            BuildAnimationFrames(animSpritesQ, spriteQ),
-            BuildAnimationFrames(animSpritesSanta, spriteSanta),
-            BuildAnimationFrames(animSpritesSocks, spriteSocks)
-        };
     }
 
     private static Sprite SpriteOrLegacy(Sprite namedSprite, Sprite[] legacySprites, int symbolId)
@@ -343,24 +276,9 @@ public class SlotBehaviour : MonoBehaviour
                 : null;
     }
 
-    private static List<Sprite> BuildAnimationFrames(List<Sprite> configuredFrames, Sprite baseSprite)
-    {
-        List<Sprite> frames = configuredFrames != null
-            ? configuredFrames.Where(frame => frame != null).Distinct().ToList()
-            : new List<Sprite>();
-
-        if (frames.Count == 0 && baseSprite != null)
-        {
-            frames.Add(baseSprite);
-        }
-
-        return frames;
-    }
-
     private bool BuildServerSymbolMapping(List<SymbolInfo> symbols)
     {
         serverSpritesById.Clear();
-        serverAnimationFramesById.Clear();
         mappedServerSymbolIds.Clear();
         reportedUnknownSymbolIds.Clear();
         serverSymbolMappingActive = false;
@@ -401,7 +319,7 @@ public class SlotBehaviour : MonoBehaviour
                 symbolIdsByName.Add(normalizedName, symbol.id);
             }
 
-            if (!TryResolveNamedSymbol(normalizedName, out Sprite sprite, out List<Sprite> animationFrames))
+            if (!TryResolveNamedSymbol(normalizedName, out Sprite sprite))
             {
                 hasValidationErrors = true;
                 Debug.LogError($"[SlotBehaviour] No assigned sprite matches init symbol id {symbol.id} named '{symbol.name}'.");
@@ -416,7 +334,6 @@ public class SlotBehaviour : MonoBehaviour
             }
 
             serverSpritesById.Add(symbol.id, sprite);
-            serverAnimationFramesById.Add(symbol.id, BuildAnimationFrames(animationFrames, sprite));
             mappedServerSymbolIds.Add(symbol.id);
         }
 
@@ -439,49 +356,40 @@ public class SlotBehaviour : MonoBehaviour
 
     private bool TryResolveNamedSymbol(
         string normalizedName,
-        out Sprite sprite,
-        out List<Sprite> animationFrames)
+        out Sprite sprite)
     {
         sprite = null;
-        animationFrames = null;
         bool recognized = true;
 
         switch (normalizedName)
         {
             case "santa":
                 sprite = spriteSanta;
-                animationFrames = animSpritesSanta;
                 break;
             case "gift":
             case "present":
                 sprite = spriteGift;
-                animationFrames = animSpritesGift;
                 break;
             case "scatter":
             case "moon":
                 sprite = spriteMoon;
-                animationFrames = animSpritesMoon;
                 break;
             case "reindeer":
             case "deer":
                 sprite = spriteDeer;
-                animationFrames = animSpritesDeer;
                 break;
             case "bell":
             case "bells":
                 sprite = spriteBell;
-                animationFrames = animSpritesBell;
                 break;
             case "stocking":
             case "stockings":
             case "sock":
             case "socks":
                 sprite = spriteSocks;
-                animationFrames = animSpritesSocks;
                 break;
             case "candle":
                 sprite = spriteCandle;
-                animationFrames = animSpritesCandle;
                 break;
             case "milkcookie":
             case "milkcookies":
@@ -489,32 +397,26 @@ public class SlotBehaviour : MonoBehaviour
             case "cookies":
             case "cup":
                 sprite = spriteCup;
-                animationFrames = animSpritesCup;
                 break;
             case "ace":
             case "a":
                 sprite = spriteA;
-                animationFrames = animSpritesA;
                 break;
             case "king":
             case "k":
                 sprite = spriteK;
-                animationFrames = animSpritesK;
                 break;
             case "queen":
             case "q":
                 sprite = spriteQ;
-                animationFrames = animSpritesQ;
                 break;
             case "jack":
             case "j":
                 sprite = spriteJ;
-                animationFrames = animSpritesJ;
                 break;
             case "ten":
             case "10":
                 sprite = sprite10;
-                animationFrames = animSprites10;
                 break;
             default:
                 recognized = false;
@@ -601,164 +503,6 @@ public class SlotBehaviour : MonoBehaviour
 
         RefreshVisibleImageCache(DefaultRowCount);
         SetupSymbolButtons(DefaultRowCount);
-    }
-
-    private void BuildWinAnimationSlotCache()
-    {
-        winAnimationSlots.Clear();
-        missingWinAnimationSlotWarningShown = false;
-        winAnimationRoot = FindWinAnimationRoot();
-
-        int assignedSlotCount = CacheAssignedWinAnimationSlots();
-        int expectedSlotCount = DefaultReelCount * DefaultRowCount;
-        if (assignedSlotCount > 0 && assignedSlotCount < expectedSlotCount)
-        {
-            Debug.LogWarning($"[SlotBehaviour] Only {assignedSlotCount} of {expectedSlotCount} win animation Images are assigned in the Inspector. Missing positions will use the hierarchy fallback.");
-        }
-
-        if (winAnimationRoot != null)
-        {
-            CacheHierarchyWinAnimationSlots();
-        }
-        else if (assignedSlotCount == 0)
-        {
-            Debug.LogWarning("[SlotBehaviour] The separate win-animation slot root was not found. Win symbols will use the reel Images as a fallback.");
-            return;
-        }
-
-        if (winAnimationRoot != null)
-        {
-            winAnimationRoot.gameObject.SetActive(false);
-        }
-
-        Debug.Log($"[SlotBehaviour] Cached {winAnimationSlots.Count} separate win-animation slots ({assignedSlotCount} assigned in the Inspector).");
-    }
-
-    private int CacheAssignedWinAnimationSlots()
-    {
-        if (winAnimationColumns == null || winAnimationColumns.Length == 0)
-        {
-            return 0;
-        }
-
-        if (winAnimationColumns.Length != DefaultReelCount)
-        {
-            Debug.LogWarning($"[SlotBehaviour] Win Animation Slot Images should contain {DefaultReelCount} columns, but it contains {winAnimationColumns.Length}.");
-        }
-
-        int assignedCount = 0;
-        HashSet<Image> assignedImages = new HashSet<Image>();
-        int columnCount = Mathf.Min(DefaultReelCount, winAnimationColumns.Length);
-        for (int column = 0; column < columnCount; column++)
-        {
-            WinAnimationColumn configuredColumn = winAnimationColumns[column];
-            if (configuredColumn?.rows == null)
-            {
-                continue;
-            }
-
-            if (configuredColumn.rows.Length != DefaultRowCount)
-            {
-                Debug.LogWarning($"[SlotBehaviour] Win animation column {column} should contain {DefaultRowCount} row Images, but it contains {configuredColumn.rows.Length}.");
-            }
-
-            int rowCount = Mathf.Min(DefaultRowCount, configuredColumn.rows.Length);
-            for (int row = 0; row < rowCount; row++)
-            {
-                Image animationImage = configuredColumn.rows[row];
-                if (animationImage == null)
-                {
-                    continue;
-                }
-
-                if (!assignedImages.Add(animationImage))
-                {
-                    Debug.LogError($"[SlotBehaviour] The same win animation Image is assigned more than once: {animationImage.name}.");
-                    continue;
-                }
-
-                int flatPosition = row * DefaultReelCount + column;
-                if (TryCacheWinAnimationSlot(flatPosition, animationImage, true))
-                {
-                    assignedCount++;
-                }
-            }
-        }
-
-        return assignedCount;
-    }
-
-    private void CacheHierarchyWinAnimationSlots()
-    {
-        int reelCount = winAnimationRoot.childCount;
-        for (int column = 0; column < reelCount; column++)
-        {
-            Transform columnRoot = winAnimationRoot.GetChild(column);
-            for (int row = 0; row < columnRoot.childCount; row++)
-            {
-                int flatPosition = row * reelCount + column;
-                if (winAnimationSlots.ContainsKey(flatPosition))
-                {
-                    continue;
-                }
-
-                Transform slotRoot = columnRoot.GetChild(row);
-                Transform animationTransform = slotRoot.Find("Animations");
-                Image animationImage = animationTransform != null
-                    ? animationTransform.GetComponent<Image>()
-                    : null;
-                if (animationImage == null)
-                {
-                    Debug.LogWarning($"[SlotBehaviour] Animation slot at column {column}, row {row} has no child Image named 'Animations'.");
-                    slotRoot.gameObject.SetActive(false);
-                    continue;
-                }
-
-                TryCacheWinAnimationSlot(flatPosition, animationImage, false);
-            }
-        }
-    }
-
-    private bool TryCacheWinAnimationSlot(int flatPosition, Image animationImage, bool inspectorAssignment)
-    {
-        if (animationImage == null || animationImage.transform.parent == null)
-        {
-            return false;
-        }
-
-        GameObject slotRoot = animationImage.transform.parent.gameObject;
-        if (inspectorAssignment && animationImage.name != "Animations")
-        {
-            Debug.LogWarning($"[SlotBehaviour] Win animation position {flatPosition} is assigned to '{animationImage.name}'. Assign the child Image named 'Animations'.");
-        }
-
-        foreach (Image overlayImage in slotRoot.GetComponentsInChildren<Image>(true))
-        {
-            overlayImage.raycastTarget = false;
-        }
-
-        animationImage.gameObject.SetActive(false);
-        slotRoot.SetActive(false);
-        winAnimationSlots[flatPosition] = new WinAnimationSlotRuntime
-        {
-            root = slotRoot,
-            image = animationImage
-        };
-        return true;
-    }
-
-    private Transform FindWinAnimationRoot()
-    {
-        return Resources.FindObjectsOfTypeAll<Transform>()
-            .Where(candidate =>
-                candidate != null &&
-                candidate.gameObject.scene == gameObject.scene &&
-                candidate.name == "Animations" &&
-                candidate.childCount >= DefaultReelCount)
-            .OrderByDescending(candidate => candidate.childCount)
-            .FirstOrDefault(candidate =>
-                Enumerable.Range(0, candidate.childCount)
-                    .All(column => candidate.GetChild(column).childCount > 0));
     }
 
     private static float CalculateSymbolPitch(RectTransform reelTransform)
@@ -1560,14 +1304,7 @@ public class SlotBehaviour : MonoBehaviour
         // result presentation can report completion in this same frame.
         yield return null;
 
-        HashSet<int> featurePositions = GetSantaFeaturePositions(result);
-        if (featurePositions.Count > 0)
-        {
-            yield return AnimateSymbolPositions(featurePositions, 1, singleWinLineDuration * 0.75f);
-        }
-
-        double totalWin = result.grandTotalWin > 0d ? result.grandTotalWin : result.winAmount;
-        yield return PlayTwoPhaseWinLines(result.winLines, totalWin, loopIndividualLines, CompleteRequiredResultPresentation);
+        yield return PlayWinLineVisuals(result.winLines, loopIndividualLines, CompleteRequiredResultPresentation);
         resultPresentationInProgress = false;
         autoplayRoundInProgress = false;
         winAnimationRoutine = null;
@@ -1590,558 +1327,92 @@ public class SlotBehaviour : MonoBehaviour
     internal void ShowWinLineAnimation(List<WinLine> winLines, Action onComplete)
     {
         StopWinningAnimations();
-        double totalWin = winLines != null ? winLines.Where(line => line != null).Sum(line => line.winAmount) : 0d;
-        winAnimationRoutine = StartCoroutine(PlayTwoPhaseWinLines(winLines, totalWin, true, onComplete));
+        winAnimationRoutine = StartCoroutine(PlayWinLineVisuals(winLines, true, onComplete));
     }
 
-    private IEnumerator PlayTwoPhaseWinLines(
+    private IEnumerator PlayWinLineVisuals(
         List<WinLine> winLines,
-        double totalWin,
         bool loopIndividualLines,
-        Action onPhaseOneComplete)
+        Action onRequiredPresentationComplete)
     {
-        HashSet<int> allWinPositions = GetWinningPositions(winLines);
-        if (allWinPositions.Count > 0)
-        {
-            ShowPhase1TotalWin(totalWin);
-            int phaseOneLoops = autoplayRoundInProgress ? 1 : Mathf.Max(1, winSymbolLoopCount);
-            yield return AnimateSymbolPositions(allWinPositions, phaseOneLoops, allWinsDuration);
-        }
-
-        onPhaseOneComplete?.Invoke();
-        HidePhase1TotalWinText();
+        HideAllWinLineVisuals();
+        onRequiredPresentationComplete?.Invoke();
 
         if (!loopIndividualLines || winLines == null || winLines.Count == 0)
         {
             yield break;
         }
 
-        while (!shuttingDown && !IsSpinning)
-        {
-            foreach (WinLine winLine in winLines)
-            {
-                if (shuttingDown || IsSpinning)
-                {
-                    yield break;
-                }
-
-                if (winLine?.positions != null && winLine.positions.Count > 0)
-                {
-                    int firstPosition = winLine.positions[0];
-                    int reelCount = GetReelCount();
-                    if (winLines.Count > 1)
-                    {
-                        ShowWinLineTextOnIcon(firstPosition % reelCount, firstPosition / reelCount, winLine.winAmount);
-                    }
-                    yield return AnimateSymbolPositions(
-                        new HashSet<int>(winLine.positions),
-                        Mathf.Max(1, winSymbolLoopCount),
-                        singleWinLineDuration);
-                    HideAllWinLineTexts();
-                }
-            }
-        }
-    }
-
-    private HashSet<int> GetSantaFeaturePositions(SpinResult result)
-    {
-        HashSet<int> positions = new HashSet<int>();
-        int reelCount = gameConfig != null && gameConfig.reelCount > 0 ? gameConfig.reelCount : DefaultReelCount;
-        int rowCount = GetRowCount();
-
-        if (result.resultMatrix != null && gameConfig != null)
-        {
-            HashSet<int> wildSymbolIds = gameConfig.symbols != null
-                ? new HashSet<int>(gameConfig.symbols
-                    .Where(symbol => symbol != null && symbol.isWild)
-                    .Select(symbol => symbol.id))
-                : new HashSet<int>();
-
-            if (wildSymbolIds.Count == 0 && gameConfig.wildSymbolIds != null)
-            {
-                wildSymbolIds.UnionWith(gameConfig.wildSymbolIds);
-            }
-
-            for (int column = 0; column < result.resultMatrix.Count; column++)
-            {
-                List<int> matrixColumn = result.resultMatrix[column];
-                if (matrixColumn == null)
-                {
-                    continue;
-                }
-
-                for (int row = 0; row < matrixColumn.Count; row++)
-                {
-                    int symbolId = matrixColumn[row];
-                    if (wildSymbolIds.Contains(symbolId) || symbolId == gameConfig.scatterSymbolId)
-                    {
-                        positions.Add(row * reelCount + column);
-                    }
-                }
-            }
-        }
-
-        if (result.expandedWildReels != null)
-        {
-            foreach (int reelIndex in result.expandedWildReels)
-            {
-                if (reelIndex < 0 || reelIndex >= reelCount)
-                {
-                    continue;
-                }
-
-                for (int row = 0; row < rowCount; row++)
-                {
-                    positions.Add(row * reelCount + reelIndex);
-                }
-            }
-        }
-
-        if (result.extraGiftWilds != null)
-        {
-            foreach (ServerExtraGiftWild giftWild in result.extraGiftWilds)
-            {
-                if (giftWild?.position != null)
-                {
-                    positions.Add(giftWild.position.row * reelCount + giftWild.position.col);
-                }
-            }
-        }
-
-        if (result.scatterData?.positions != null)
-        {
-            positions.UnionWith(result.scatterData.positions);
-        }
-
-        return positions;
-    }
-
-    private static HashSet<int> GetWinningPositions(List<WinLine> winLines)
-    {
-        HashSet<int> positions = new HashSet<int>();
-        if (winLines == null)
-        {
-            return positions;
-        }
-
-        foreach (WinLine winLine in winLines)
-        {
-            if (winLine?.positions != null)
-            {
-                positions.UnionWith(winLine.positions);
-            }
-        }
-
-        return positions;
-    }
-
-    internal void AnimateAllScatters(int loopCount)
-    {
-        if (gameConfig == null || currentDisplayMatrix == null)
-        {
-            return;
-        }
-
-        HashSet<int> positions = GetPositionsForSymbolId(gameConfig.scatterSymbolId);
-        StartOneShotSymbolAnimation(positions, loopCount, singleWinLineDuration);
-    }
-
-    internal void AnimateSantaFeatureSymbols(int loopCount = 1)
-    {
-        if (lastPresentedResult == null)
-        {
-            return;
-        }
-
-        StartOneShotSymbolAnimation(
-            GetSantaFeaturePositions(lastPresentedResult),
-            loopCount,
-            singleWinLineDuration);
-    }
-
-    internal void AnimateSymbolSingleLoop(int column, int row, int loopCount = 1)
-    {
-        int reelCount = GetReelCount();
-        if (column < 0 || column >= reelCount || row < 0 || row >= GetRowCount())
-        {
-            return;
-        }
-
-        StartOneShotSymbolAnimation(
-            new HashSet<int> { row * reelCount + column },
-            loopCount,
-            singleWinLineDuration);
-    }
-
-    private void StartOneShotSymbolAnimation(HashSet<int> positions, int loopCount, float duration)
-    {
-        if (positions == null || positions.Count == 0)
-        {
-            return;
-        }
-
-        StopWinningAnimations();
-        winAnimationRoutine = StartCoroutine(PlayOneShotSymbolAnimation(positions, loopCount, duration));
-    }
-
-    private IEnumerator PlayOneShotSymbolAnimation(HashSet<int> positions, int loopCount, float duration)
-    {
-        yield return AnimateSymbolPositions(positions, Mathf.Max(1, loopCount), duration);
-        winAnimationRoutine = null;
-    }
-
-    private HashSet<int> GetPositionsForSymbolId(int symbolId)
-    {
-        HashSet<int> positions = new HashSet<int>();
-        if (currentDisplayMatrix == null)
-        {
-            return positions;
-        }
-
-        int reelCount = GetReelCount();
-        for (int column = 0; column < currentDisplayMatrix.Count; column++)
-        {
-            List<int> matrixColumn = currentDisplayMatrix[column];
-            if (matrixColumn == null)
-            {
-                continue;
-            }
-
-            for (int row = 0; row < matrixColumn.Count; row++)
-            {
-                if (matrixColumn[row] == symbolId)
-                {
-                    positions.Add(row * reelCount + column);
-                }
-            }
-        }
-
-        return positions;
-    }
-
-    private IEnumerator AnimateSymbolPositions(HashSet<int> positions, int loopCount, float minimumDuration)
-    {
-        List<SymbolAnimationRuntime> activeSymbols = new List<SymbolAnimationRuntime>();
-        int maxFrameCount = 1;
-
-        foreach (int position in positions)
-        {
-            if (!TryGetSymbolAtPosition(position, out Image symbol, out int symbolId))
-            {
-                continue;
-            }
-
-            List<Sprite> frames = GetAnimationFrames(symbolId);
-            if (frames == null || frames.Count == 0)
-            {
-                frames = BuildAnimationFrames(null, symbol.sprite);
-            }
-
-            RememberAnimatedSymbolState(symbol);
-            Image animationImage = symbol;
-            GameObject overlayRoot = null;
-            if (TryActivateWinAnimationSlot(position, frames[0], out WinAnimationSlotRuntime animationSlot))
-            {
-                animationImage = animationSlot.image;
-                overlayRoot = animationSlot.root;
-                Color baseColor = symbol.color;
-                symbol.color = new Color(baseColor.r, baseColor.g, baseColor.b, 0f);
-            }
-            else if (!missingWinAnimationSlotWarningShown)
-            {
-                missingWinAnimationSlotWarningShown = true;
-                Debug.LogWarning("[SlotBehaviour] One or more win positions have no separate animation slot; those positions will animate on the reel Image.");
-            }
-
-            activeSymbols.Add(new SymbolAnimationRuntime
-            {
-                baseImage = symbol,
-                animationImage = animationImage,
-                overlayRoot = overlayRoot,
-                frames = frames
-            });
-            maxFrameCount = Mathf.Max(maxFrameCount, frames.Count);
-        }
-
-        if (activeSymbols.Count == 0)
+        List<WinLine> validWinLines = winLines.Where(line => line != null).ToList();
+        if (validWinLines.Count == 0)
         {
             yield break;
         }
 
-        int safeLoopCount = Mathf.Max(1, loopCount);
-        int totalFrameSteps = Mathf.Max(1, maxFrameCount * safeLoopCount);
-        float safeDuration = Mathf.Max(0.02f, minimumDuration);
-        float frameDuration = Mathf.Max(winSpriteFrameDuration, safeDuration / totalFrameSteps);
-        float totalDuration = frameDuration * totalFrameSteps;
-        float halfPulseDuration = totalDuration / (safeLoopCount * 2f);
+        WaitForSecondsRealtime lineDisplayDelay = new WaitForSecondsRealtime(
+            Mathf.Max(0.01f, singleWinLineDuration));
 
-        foreach (SymbolAnimationRuntime runtime in activeSymbols)
+        while (!shuttingDown && !IsSpinning)
         {
-            runtime.animationImage.rectTransform.localScale = Vector3.one;
-
-            Sequence pulse = DOTween.Sequence().SetUpdate(true);
-            pulse.Append(runtime.animationImage.rectTransform.DOScale(winningSymbolScale, halfPulseDuration).SetEase(Ease.OutQuad));
-            pulse.Append(runtime.animationImage.rectTransform.DOScale(1f, halfPulseDuration).SetEase(Ease.InQuad));
-            pulse.SetLoops(safeLoopCount, LoopType.Restart);
-            winTweens.Add(pulse);
-        }
-
-        for (int frameStep = 0; frameStep < totalFrameSteps; frameStep++)
-        {
-            foreach (SymbolAnimationRuntime runtime in activeSymbols)
+            foreach (WinLine winLine in validWinLines)
             {
-                if (runtime.animationImage != null && runtime.frames.Count > 0)
+                if (shuttingDown || IsSpinning)
                 {
-                    runtime.animationImage.sprite = runtime.frames[frameStep % runtime.frames.Count];
-                }
-            }
-
-            yield return new WaitForSecondsRealtime(frameDuration);
-        }
-
-        foreach (SymbolAnimationRuntime runtime in activeSymbols)
-        {
-            runtime.animationImage?.rectTransform.DOKill();
-            if (runtime.animationImage != null)
-            {
-                runtime.animationImage.rectTransform.localScale = Vector3.one;
-            }
-
-            if (runtime.overlayRoot != null)
-            {
-                runtime.overlayRoot.SetActive(false);
-            }
-
-            RestoreAnimatedSymbol(runtime.baseImage);
-        }
-
-        RefreshWinAnimationRootVisibility();
-        winTweens.RemoveAll(tween => tween == null || !tween.IsActive());
-    }
-
-    private bool TryActivateWinAnimationSlot(
-        int flatPosition,
-        Sprite firstFrame,
-        out WinAnimationSlotRuntime animationSlot)
-    {
-        if (!winAnimationSlots.TryGetValue(flatPosition, out animationSlot) ||
-            animationSlot?.root == null || animationSlot.image == null)
-        {
-            return false;
-        }
-
-        if (winAnimationRoot != null)
-        {
-            winAnimationRoot.gameObject.SetActive(true);
-        }
-
-        animationSlot.root.SetActive(true);
-        animationSlot.image.gameObject.SetActive(true);
-        animationSlot.image.sprite = firstFrame;
-        animationSlot.image.color = Color.white;
-        animationSlot.image.rectTransform.localScale = Vector3.one;
-        return true;
-    }
-
-    private void RefreshWinAnimationRootVisibility()
-    {
-        if (winAnimationRoot == null)
-        {
-            return;
-        }
-
-        bool hasActiveSlot = winAnimationSlots.Values.Any(slot => slot?.root != null && slot.root.activeSelf);
-        winAnimationRoot.gameObject.SetActive(hasActiveSlot);
-    }
-
-    private void HideAllWinAnimationSlots()
-    {
-        foreach (WinAnimationSlotRuntime slot in winAnimationSlots.Values)
-        {
-            if (slot?.image != null)
-            {
-                slot.image.rectTransform.DOKill();
-                slot.image.rectTransform.localScale = Vector3.one;
-                slot.image.gameObject.SetActive(false);
-            }
-
-            if (slot?.root != null)
-            {
-                slot.root.SetActive(false);
-            }
-        }
-
-        if (winAnimationRoot != null)
-        {
-            winAnimationRoot.gameObject.SetActive(false);
-        }
-    }
-
-    private List<Sprite> GetAnimationFrames(int symbolId)
-    {
-        if (serverSymbolMappingActive)
-        {
-            return serverAnimationFramesById.TryGetValue(symbolId, out List<Sprite> mappedFrames)
-                ? mappedFrames
-                : null;
-        }
-
-        return symbolId >= 0 && symbolId < animationSpriteArrays.Length
-            ? animationSpriteArrays[symbolId]
-            : null;
-    }
-
-    private bool TryGetSymbolAtPosition(int flatPosition, out Image symbol, out int symbolId)
-    {
-        symbol = null;
-        symbolId = -1;
-
-        int reelCount = GetReelCount();
-        int rowCount = GetRowCount();
-        int row = flatPosition / reelCount;
-        int column = flatPosition % reelCount;
-        if (column < 0 || column >= reels.Count || row < 0 || row >= rowCount ||
-            currentDisplayMatrix == null || column >= currentDisplayMatrix.Count ||
-            currentDisplayMatrix[column] == null || row >= currentDisplayMatrix[column].Count)
-        {
-            return false;
-        }
-
-        ReelRuntime reel = reels[column];
-        int visibleStart = Mathf.Max(0, reel.symbols.Count - rowCount);
-        int imageIndex = visibleStart + row;
-        if (imageIndex < 0 || imageIndex >= reel.symbols.Count)
-        {
-            return false;
-        }
-
-        symbol = reel.symbols[imageIndex];
-        symbolId = currentDisplayMatrix[column][row];
-        return symbol != null;
-    }
-
-    private void RememberAnimatedSymbolState(Image symbol)
-    {
-        if (symbol == null || animatedSymbolOriginalSprites.ContainsKey(symbol))
-        {
-            return;
-        }
-
-        animatedSymbolOriginalSprites[symbol] = symbol.sprite;
-        animatedSymbolOriginalColors[symbol] = symbol.color;
-        animatedSymbolOriginalScales[symbol] = symbol.rectTransform.localScale;
-    }
-
-    private void RestoreAnimatedSymbol(Image symbol)
-    {
-        if (symbol == null)
-        {
-            return;
-        }
-
-        if (animatedSymbolOriginalSprites.TryGetValue(symbol, out Sprite originalSprite))
-        {
-            symbol.sprite = originalSprite;
-            animatedSymbolOriginalSprites.Remove(symbol);
-        }
-
-        if (animatedSymbolOriginalColors.TryGetValue(symbol, out Color originalColor))
-        {
-            symbol.color = originalColor;
-            animatedSymbolOriginalColors.Remove(symbol);
-        }
-
-        if (animatedSymbolOriginalScales.TryGetValue(symbol, out Vector3 originalScale))
-        {
-            symbol.rectTransform.localScale = originalScale;
-            animatedSymbolOriginalScales.Remove(symbol);
-        }
-    }
-
-    private void ShowWinLineTextOnIcon(int column, int row, double winAmount)
-    {
-        int flatPosition = row * GetReelCount() + column;
-        if (!TryGetSymbolAtPosition(flatPosition, out Image symbol, out _))
-        {
-            return;
-        }
-
-        Transform textTransform = symbol.transform.Find("WinLineText");
-        TMP_Text winLineText = textTransform != null ? textTransform.GetComponent<TMP_Text>() : null;
-        if (winLineText == null)
-        {
-            return;
-        }
-
-        winLineText.text = FormatAmount(winAmount);
-        AnimateTextScaleAppear(winLineText.transform);
-    }
-
-    private void HideAllWinLineTexts()
-    {
-        foreach (ReelRuntime reel in reels)
-        {
-            foreach (Image symbol in reel.symbols)
-            {
-                Transform textTransform = symbol != null ? symbol.transform.Find("WinLineText") : null;
-                if (textTransform == null)
-                {
-                    continue;
+                    HideAllWinLineVisuals();
+                    yield break;
                 }
 
-                textTransform.DOKill();
-                textTransform.localScale = Vector3.one;
-                textTransform.gameObject.SetActive(false);
+                ShowWinLineVisual(winLine.lineId);
+                yield return lineDisplayDelay;
+                HideAllWinLineVisuals();
             }
         }
     }
 
-    private void ShowPhase1TotalWin(double totalWin)
+    private void ShowWinLineVisual(int resultLineId)
     {
-        if (phase1TotalWinText == null || totalWin <= 0d)
+        HideAllWinLineVisuals();
+
+        if (winLineObjects == null || resultLineId < 0 || resultLineId >= winLineObjects.Length)
         {
+            ReportMissingWinLineVisual(resultLineId);
             return;
         }
 
-        winAmountTween?.Kill();
-        phase1TotalWinText.text = FormatAmount(totalWin);
-        AnimateTextScaleAppear(phase1TotalWinText.transform);
+        GameObject lineObject = winLineObjects[resultLineId];
+        if (lineObject == null)
+        {
+            ReportMissingWinLineVisual(resultLineId);
+            return;
+        }
+
+        lineObject.SetActive(true);
     }
 
-    private void HidePhase1TotalWinText()
+    private void HideAllWinLineVisuals()
     {
-        if (phase1TotalWinText == null)
+        if (winLineObjects == null)
         {
             return;
         }
 
-        phase1TotalWinText.transform.DOKill();
-        phase1TotalWinText.transform.localScale = Vector3.one;
-        if (phase1TotalWinText != TotalWin_text)
+        for (int i = 0; i < winLineObjects.Length; i++)
         {
-            phase1TotalWinText.gameObject.SetActive(false);
+            if (winLineObjects[i] != null)
+            {
+                winLineObjects[i].SetActive(false);
+            }
         }
     }
 
-    private void AnimateTextScaleAppear(
-        Transform textTransform,
-        float popScale = 1.2f,
-        float durationUp = 0.15f,
-        float durationDown = 0.1f)
+    private void ReportMissingWinLineVisual(int resultLineId)
     {
-        if (textTransform == null)
+        if (reportedMissingWinLineIds.Add(resultLineId))
         {
-            return;
+            Debug.LogWarning(
+                $"[SlotBehaviour] Result line ID {resultLineId} has no assigned win-line visual.",
+                this);
         }
-
-        textTransform.DOKill();
-        textTransform.localScale = Vector3.zero;
-        textTransform.gameObject.SetActive(true);
-
-        Sequence sequence = DOTween.Sequence().SetUpdate(true);
-        sequence.Append(textTransform.DOScale(popScale, durationUp).SetEase(Ease.OutQuad));
-        sequence.Append(textTransform.DOScale(1f, durationDown).SetEase(Ease.InQuad));
-        winTweens.Add(sequence);
     }
 
     private void StopWinningAnimations()
@@ -2153,31 +1424,7 @@ public class SlotBehaviour : MonoBehaviour
             winAnimationRoutine = null;
         }
 
-        foreach (Tween tween in winTweens)
-        {
-            tween?.Kill();
-        }
-
-        winTweens.Clear();
-        HideAllWinAnimationSlots();
-        HideAllWinLineTexts();
-        HidePhase1TotalWinText();
-
-        foreach (Image symbol in animatedSymbolOriginalSprites.Keys.ToList())
-        {
-            RestoreAnimatedSymbol(symbol);
-        }
-
-        foreach (ReelRuntime reel in reels)
-        {
-            foreach (Image symbol in reel.symbols)
-            {
-                if (symbol != null)
-                {
-                    symbol.rectTransform.localScale = Vector3.one;
-                }
-            }
-        }
+        HideAllWinLineVisuals();
     }
 
     private void SetWinAmount(double amount, bool animate)
@@ -2345,13 +1592,6 @@ public class SlotBehaviour : MonoBehaviour
     }
 
     #endregion
-}
-
-[Serializable]
-internal sealed class WinAnimationColumn
-{
-    [Tooltip("Top, middle and bottom child Images named Animations.")]
-    [SerializeField] internal Image[] rows = new Image[3];
 }
 
 [Serializable]

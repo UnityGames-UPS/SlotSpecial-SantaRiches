@@ -969,7 +969,7 @@ public static class InitDataConverter
             {
                 winLines.Add(new WinLine
                 {
-                    lineId = paylineWin.lineIndex,
+                    lineId = ResolvePaylineIndex(paylineWin, gameConfig),
                     symbolId = paylineWin.symbolId,
                     positions = FlattenPositions(
                         paylineWin.positions != null
@@ -998,6 +998,23 @@ public static class InitDataConverter
         }
 
         return winLines;
+    }
+
+    private static int ResolvePaylineIndex(ServerPaylineWin paylineWin, GameConfig gameConfig)
+    {
+        if (paylineWin?.lineDefinition != null && gameConfig?.paylines != null)
+        {
+            for (int index = 0; index < gameConfig.paylines.Count; index++)
+            {
+                List<int> configuredLine = gameConfig.paylines[index];
+                if (configuredLine != null && configuredLine.SequenceEqual(paylineWin.lineDefinition))
+                {
+                    return index;
+                }
+            }
+        }
+
+        return paylineWin != null ? paylineWin.lineIndex : -1;
     }
 
     private static List<int> FlattenPositions(List<ServerPosition> positions, GameConfig gameConfig)
