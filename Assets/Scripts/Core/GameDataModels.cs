@@ -130,12 +130,14 @@ public class ServerPayload
     // Santa Riches result fields.
     public List<List<int>> matrix;
     public List<ServerPaylineWin> paylineWins;
-    public List<int> expandedWilds;
+    public List<ServerExpandedWild> expandedWilds;
     public List<ServerExtraGiftWild> extraGiftWilds;
     public double totalMultiplier;
     public ServerScatterResult scatter;
     public double baseLineWin;
+    public double? spinWin;
     public bool isFreeSpin;
+    public int freeSpinsRemaining;
 
     // Older response fields retained only as parsing fallbacks.
     public List<List<string>> reels;        // Keep for fallback compatibility
@@ -170,6 +172,14 @@ public class ServerExtraGiftWild
 {
     public ServerPosition position;
     public int originalSymbolId;
+}
+
+[Serializable]
+public class ServerExpandedWild
+{
+    public int col;
+    public int giftWildCountBeforeExpansion;
+    public double multiplierContribution;
 }
 
 [Serializable]
@@ -496,7 +506,7 @@ public sealed class GameRuntimeData
         DisplayedBalance = Math.Max(0d, Player.balance - Math.Max(0d, totalBet));
     }
 
-    public void ApplySpinResult(SpinResult result)
+    public void ApplySpinResult(SpinResult result, bool updateDisplayedBalance = true)
     {
         if (result?.playerData == null)
         {
@@ -505,7 +515,10 @@ public sealed class GameRuntimeData
 
         Player = result.playerData;
         Player.currentBetIndex = CurrentBetIndex;
-        DisplayedBalance = Math.Max(0d, Player.balance);
+        if (updateDisplayedBalance)
+        {
+            DisplayedBalance = Math.Max(0d, Player.balance);
+        }
     }
 
     public void SynchronizeBalance(double balance, bool updateDisplayedBalance)
@@ -529,6 +542,7 @@ public class SpinResult
     public List<List<int>> resultMatrix;  // Client uses int matrix
     public double winAmount;
     public double grandTotalWin;
+    public int winAmountDecimalPlaces = -1;
     public List<WinLine> winLines;
     public PlayerData playerData;
     public FreeSpinData freeSpinData;
@@ -543,6 +557,7 @@ public class SpinResult
     public double serverTotalRoundWin;
     public bool isRoundOver;
     public bool isFreeSpinResult;
+    public List<ServerExpandedWild> expandedWilds;
     public List<int> expandedWildReels;
     public List<ServerExtraGiftWild> extraGiftWilds;
     public double totalMultiplier;
@@ -561,6 +576,7 @@ public class WinLine
 public class FreeSpinData
 {
     public bool isTriggered;
+    public bool isRetrigger;
     public int spinsAwarded;
     public int remainingSpins;
     public bool isBought;
@@ -748,7 +764,11 @@ public static class InitDataConverter
             throw new ArgumentException("The spin response payload is missing.", nameof(serverResponse));
         }
 
-        double winAmountVal = serverResponse.payload.winAmount > 0 ? serverResponse.payload.winAmount : serverResponse.payload.totalWin;
+        double winAmountVal = serverResponse.payload.spinWin.HasValue
+            ? Math.Max(0d, serverResponse.payload.spinWin.Value)
+            : serverResponse.payload.winAmount > 0d
+                ? serverResponse.payload.winAmount
+                : serverResponse.payload.totalWin;
         double totalPay = serverResponse.payload.isFreeSpin
             ? 0d
             : (gameConfig != null && gameConfig.creditDivisor > 0)
@@ -775,13 +795,23 @@ public static class InitDataConverter
         }
         else
         {
+            spinsRemaining = Math.Max(0, serverResponse.payload.freeSpinsRemaining);
             isRoundOver = serverResponse.payload.isRoundOver;
             totalRoundWin = serverResponse.payload.totalRoundWin;
         }
 
+        // Santa Riches sends the current result in spinWin and the
+        // server-authoritative cumulative feature value in totalWin.
+        if (serverResponse.payload.spinWin.HasValue)
+        {
+            totalRoundWin = Math.Max(0d, serverResponse.payload.totalWin);
+        }
+
         double grandTotalWinVal = serverResponse.payload.grandTotalWin > 0 
             ? serverResponse.payload.grandTotalWin 
-            : winAmountVal;
+            : serverResponse.payload.spinWin.HasValue
+                ? Math.Max(0d, serverResponse.payload.totalWin)
+                : winAmountVal;
 
         var result = new SpinResult
         {
@@ -807,6 +837,7 @@ public static class InitDataConverter
                 ? new FreeSpinData
                 {
                     isTriggered = true,
+                    isRetrigger = true,
                     spinsAwarded = Math.Max(0, serverResponse.payload.scatter.spinsAwarded),
                     remainingSpins = Math.Max(0, serverResponse.payload.scatter.spinsAwarded),
                     isBought = false
@@ -815,6 +846,7 @@ public static class InitDataConverter
                 ? new FreeSpinData
                 {
                     isTriggered = true,
+                    isRetrigger = false,
                     spinsAwarded = serverResponse.payload.freeGames.totalAwarded,
                     remainingSpins = serverResponse.payload.freeGames.totalAwarded - serverResponse.payload.freeGames.played,
                     isBought = false
@@ -848,8 +880,15 @@ public static class InitDataConverter
             serverTotalRoundWin = totalRoundWin,
             isRoundOver = isRoundOver,
             isFreeSpinResult = serverResponse.payload.isFreeSpin,
+            expandedWilds = serverResponse.payload.expandedWilds != null
+                ? new List<ServerExpandedWild>(serverResponse.payload.expandedWilds)
+                : new List<ServerExpandedWild>(),
             expandedWildReels = serverResponse.payload.expandedWilds != null
-                ? new List<int>(serverResponse.payload.expandedWilds)
+                ? serverResponse.payload.expandedWilds
+                    .Where(expansion => expansion != null && (expansion.col == 1 || expansion.col == 3))
+                    .Select(expansion => expansion.col)
+                    .Distinct()
+                    .ToList()
                 : new List<int>(),
             extraGiftWilds = serverResponse.payload.extraGiftWilds != null
                 ? new List<ServerExtraGiftWild>(serverResponse.payload.extraGiftWilds)

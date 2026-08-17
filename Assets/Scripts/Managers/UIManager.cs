@@ -40,6 +40,16 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Button fastSpeedButton;
     [SerializeField] private Button skipSpeedButton;
 
+    [Header("Free Spin UI")]
+    [SerializeField] private GameObject freeSpinPanel;
+    [SerializeField] private GameObject freeSpinCountPanel;
+    [SerializeField] private GameObject freeSpinWinPanel;
+    [SerializeField] private Button freeSpinPanelStartButton;
+    [SerializeField] private Button bottomFreeSpinStartButton;
+    [SerializeField] private Button takeFreeSpinButton;
+    [SerializeField] private TMP_Text totalFreeSpinsText;
+    [SerializeField] private TMP_Text remainingFreeSpinsText;
+
     [Header("Autoplay Panel")]
     [SerializeField] private GameObject autoplayPanel;
     [SerializeField] private CanvasGroup autoplayCanvasGroup;
@@ -211,6 +221,54 @@ public class UIManager : MonoBehaviour
         RefreshControls();
     }
 
+    internal void ShowFreeSpinOffer(int totalSpins)
+    {
+        if (freeSpinPanel != null) freeSpinPanel.SetActive(true);
+        if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
+        if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
+        SetVisible(bottomFreeSpinStartButton, true);
+        SetVisible(takeFreeSpinButton, false);
+        UpdateFreeSpinCounter(totalSpins, totalSpins);
+        RefreshControls();
+    }
+
+    internal void BeginFreeSpinPresentation(int totalSpins, int remainingSpins)
+    {
+        if (freeSpinPanel != null) freeSpinPanel.SetActive(false);
+        if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(true);
+        if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
+        SetVisible(bottomFreeSpinStartButton, false);
+        SetVisible(takeFreeSpinButton, false);
+        UpdateFreeSpinCounter(totalSpins, remainingSpins);
+        RefreshControls();
+    }
+
+    internal void UpdateFreeSpinCounter(int totalSpins, int remainingSpins)
+    {
+        if (totalFreeSpinsText != null) totalFreeSpinsText.text = Mathf.Max(0, totalSpins).ToString();
+        if (remainingFreeSpinsText != null) remainingFreeSpinsText.text = Mathf.Max(0, remainingSpins).ToString();
+    }
+
+    internal void ShowFreeSpinCompletion()
+    {
+        if (freeSpinPanel != null) freeSpinPanel.SetActive(false);
+        if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
+        if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(true);
+        SetVisible(bottomFreeSpinStartButton, false);
+        SetVisible(takeFreeSpinButton, true);
+        RefreshControls();
+    }
+
+    internal void ResetFreeSpinPresentation()
+    {
+        if (freeSpinPanel != null) freeSpinPanel.SetActive(false);
+        if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
+        if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
+        SetVisible(bottomFreeSpinStartButton, false);
+        SetVisible(takeFreeSpinButton, false);
+        RefreshControls();
+    }
+
     /// <summary>Callable by the WebGL host when fullscreen changes externally.</summary>
     internal void SetFullscreenStateFromHost(string value)
     {
@@ -228,19 +286,24 @@ public class UIManager : MonoBehaviour
         bool blocked = IsBlockingInteraction;
         bool autoplay = gameManager.IsAutoplayActive;
         bool settlingAutoplay = gameManager.IsAutoplayRoundSettling;
-        bool manualSpin = gameManager.IsCurrentlySpinning && !autoplay && !settlingAutoplay;
+        bool freeSpinOffer = gameManager.IsFreeSpinAwaitingStart;
+        bool freeSpinActive = gameManager.IsFreeSpinActive;
+        bool freeSpinAwaitingTake = gameManager.IsFreeSpinAwaitingTake;
+        bool manualSpin = gameManager.IsCurrentlySpinning && !autoplay && !settlingAutoplay && !freeSpinActive;
         bool showingResult = gameManager.IsResultPresentationActive && !autoplay;
         bool showStop = manualSpin;
-        bool showAutoplayStop = autoplay;
-        bool showSpin = !showStop && !showAutoplayStop;
+        bool showAutoplayStop = autoplay && !freeSpinOffer && !freeSpinActive;
+        bool showSpin = !freeSpinOffer && !showStop && !showAutoplayStop;
 
         SetVisible(spinButton, showSpin);
         SetVisible(stopButton, showStop);
         SetVisible(autoplayStopButton, showAutoplayStop);
+        SetVisible(bottomFreeSpinStartButton, freeSpinOffer);
+        SetVisible(takeFreeSpinButton, freeSpinAwaitingTake);
 
         if (spinButton != null)
         {
-            spinButton.interactable = showSpin && !blocked && !settlingAutoplay && !showingResult &&
+            spinButton.interactable = showSpin && !freeSpinActive && !blocked && !settlingAutoplay && !showingResult &&
                 gameManager.CanAttemptManualSpin;
         }
 
@@ -252,6 +315,21 @@ public class UIManager : MonoBehaviour
         if (autoplayStopButton != null)
         {
             autoplayStopButton.interactable = showAutoplayStop && !blocked;
+        }
+
+        if (bottomFreeSpinStartButton != null)
+        {
+            bottomFreeSpinStartButton.interactable = freeSpinOffer && !blocked;
+        }
+
+        if (freeSpinPanelStartButton != null)
+        {
+            freeSpinPanelStartButton.interactable = freeSpinOffer && !blocked;
+        }
+
+        if (takeFreeSpinButton != null)
+        {
+            takeFreeSpinButton.interactable = freeSpinAwaitingTake && !blocked;
         }
 
         if (autoplayCountText != null)
@@ -279,8 +357,8 @@ public class UIManager : MonoBehaviour
 
         SetInteractable(hamburgerButton, !blocked && !menuOpen);
         SetInteractable(menuCloseButton, !blocked && menuOpen);
-        SetInteractable(homeButton, !blocked && !autoplay);
-        SetInteractable(moreGamesButton, !blocked && moreGamesEnabled);
+        SetInteractable(homeButton, !blocked && !autoplay && !freeSpinOffer && !freeSpinActive);
+        SetInteractable(moreGamesButton, !blocked && moreGamesEnabled && !freeSpinOffer && !freeSpinActive);
         SetInteractable(enterFullscreenButton, !blocked);
         SetInteractable(exitFullscreenButton, !blocked);
 
@@ -321,6 +399,21 @@ public class UIManager : MonoBehaviour
         normalSpeedButton = ResolveButton(normalSpeedButton, "NormalSpinSpeed");
         fastSpeedButton = ResolveButton(fastSpeedButton, "FastSpinSpeed");
         skipSpeedButton = ResolveButton(skipSpeedButton, "SkipSpinSpeed");
+
+        freeSpinPanel = freeSpinPanel != null ? freeSpinPanel : FindSceneObject("FreeSpinPanel");
+        freeSpinCountPanel = freeSpinCountPanel != null ? freeSpinCountPanel : FindSceneObject("FreeSpinCountPanel");
+        freeSpinWinPanel = freeSpinWinPanel != null ? freeSpinWinPanel : FindSceneObject("FreeSpinWinPanel");
+        freeSpinPanelStartButton = ResolveChildButton(freeSpinPanelStartButton, freeSpinPanel, "Start");
+        bottomFreeSpinStartButton = bottomFreeSpinStartButton != null
+            ? bottomFreeSpinStartButton
+            : FindBottomFreeSpinStartButton();
+        takeFreeSpinButton = ResolveButton(takeFreeSpinButton, "Take", "TAKE");
+        totalFreeSpinsText = ResolveChildComponent(totalFreeSpinsText, freeSpinCountPanel, "TotalFreeSpins");
+        remainingFreeSpinsText = ResolveChildComponent(
+            remainingFreeSpinsText,
+            freeSpinCountPanel,
+            "RemainingFreeSpins",
+            "RemainingFreeSpin");
 
         autoplayPanel = autoplayPanel != null ? autoplayPanel : FindSceneObject("Autoplay Panel");
         menuPanel = menuPanel != null ? menuPanel : FindSceneObject("HamburgerMenu");
@@ -379,6 +472,11 @@ public class UIManager : MonoBehaviour
 
         menuOpen = menuPanel != null && menuPanel.activeSelf;
         soundOpen = soundPanel != null && soundPanel.activeSelf;
+        if (freeSpinPanel != null) freeSpinPanel.SetActive(false);
+        if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
+        if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
+        SetVisible(bottomFreeSpinStartButton, false);
+        SetVisible(takeFreeSpinButton, false);
         ApplyMenuIcons();
     }
 
@@ -402,6 +500,9 @@ public class UIManager : MonoBehaviour
         Bind(spinButton, HandleSpinClick);
         Bind(stopButton, HandleStopClick);
         Bind(autoplayStopButton, HandleAutoplayStopClick);
+        Bind(freeSpinPanelStartButton, HandleFreeSpinStartClick);
+        Bind(bottomFreeSpinStartButton, HandleFreeSpinStartClick);
+        Bind(takeFreeSpinButton, HandleFreeSpinTakeClick);
         Bind(betIncreaseButton, HandleBetIncrease);
         Bind(betDecreaseButton, HandleBetDecrease);
         Bind(normalSpeedButton, HandleSpeedClick);
@@ -454,6 +555,9 @@ public class UIManager : MonoBehaviour
         Unbind(spinButton, HandleSpinClick);
         Unbind(stopButton, HandleStopClick);
         Unbind(autoplayStopButton, HandleAutoplayStopClick);
+        Unbind(freeSpinPanelStartButton, HandleFreeSpinStartClick);
+        Unbind(bottomFreeSpinStartButton, HandleFreeSpinStartClick);
+        Unbind(takeFreeSpinButton, HandleFreeSpinTakeClick);
         Unbind(betIncreaseButton, HandleBetIncrease);
         Unbind(betDecreaseButton, HandleBetDecrease);
         Unbind(normalSpeedButton, HandleSpeedClick);
@@ -557,6 +661,18 @@ public class UIManager : MonoBehaviour
         if (IsBlockingInteraction || gameManager == null) return;
         gameManager.StopAutoSpin();
         audioManager?.PlayNormalClick();
+    }
+
+    private void HandleFreeSpinStartClick()
+    {
+        if (IsBlockingInteraction || gameManager == null) return;
+        if (gameManager.StartPendingFreeSpins()) audioManager?.PlaySpinClick();
+    }
+
+    private void HandleFreeSpinTakeClick()
+    {
+        if (IsBlockingInteraction || gameManager == null) return;
+        if (gameManager.TakeFreeSpinWin()) audioManager?.PlayNormalClick();
     }
 
     private void HandleBetIncrease() => ChangeBet(true);
@@ -1028,6 +1144,16 @@ public class UIManager : MonoBehaviour
     private static Button ResolveChildButton(Button assigned, GameObject root, params string[] names)
     {
         return ResolveChildComponent(assigned, root, names);
+    }
+
+    private Button FindBottomFreeSpinStartButton()
+    {
+        return Resources.FindObjectsOfTypeAll<Button>()
+            .FirstOrDefault(candidate =>
+                candidate != null &&
+                candidate.gameObject.scene.IsValid() &&
+                candidate.name == "Start" &&
+                (freeSpinPanel == null || !candidate.transform.IsChildOf(freeSpinPanel.transform)));
     }
 
     private static T ResolveChildComponent<T>(T assigned, GameObject root, params string[] names) where T : Component

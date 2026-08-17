@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using DG.Tweening;
 using TMPro;
@@ -37,6 +38,8 @@ public class SlotBehaviour : MonoBehaviour
 {
     private const int DefaultReelCount = 5;
     private const int DefaultRowCount = 3;
+    private const float NormalAllWinBoxesDuration = 2f;
+    private const float NormalSingleWinLineDuration = 2f;
 
     [Header("Symbol Sprites - Assign by Name")]
     [SerializeField] private Sprite sprite10;
@@ -65,21 +68,23 @@ public class SlotBehaviour : MonoBehaviour
 
     [Header("Miscellaneous UI")]
     [SerializeField] private TMP_Text TotalWin_text;
+    [SerializeField] private TMP_Text winLabelText;
+    [SerializeField] private TMP_Text goodLuckText;
     [SerializeField] private TMP_Text WinLinesCount_Text;
 
     [Header("Spin Timing")]
-    [SerializeField, Min(0.1f)] private float normalMinimumSpinTime = 1.35f;
-    [SerializeField, Min(0.05f)] private float fastMinimumSpinTime = 0.55f;
-    [SerializeField, Min(1)] private int minSpinCyclesBeforeStop = 2;
-    [SerializeField, Min(0f)] private float reelStartStagger = 0.06f;
+    [SerializeField, Min(0.1f)] private float normalMinimumSpinTime = 1.8f;
+    [SerializeField, Min(0.05f)] private float fastMinimumSpinTime = 0.75f;
+    [SerializeField, Min(1)] private int minSpinCyclesBeforeStop = 3;
+    [SerializeField, Min(0f)] private float reelStartStagger = 0.08f;
     [SerializeField, Min(0f)] private float reelStopStagger = 0.12f;
     [SerializeField, Min(0.1f)] private float resultTimeout = 12f;
-    [SerializeField, Min(100f)] private float normalReelSpeed = 3600f;
-    [SerializeField, Min(100f)] private float fastReelSpeed = 7000f;
+    [SerializeField, Min(100f)] private float normalReelSpeed = 4700f;
+    [SerializeField, Min(100f)] private float fastReelSpeed = 6000f;
     [SerializeField, Min(0f)] private float stopAnticipationDistance = 20f;
-    [SerializeField, Min(0f)] private float stopOvershootDistance = 35f;
-    [SerializeField, Min(0.01f)] private float stopOvershootDuration = 0.16f;
-    [SerializeField, Min(0.01f)] private float stopSettleDuration = 0.22f;
+    [SerializeField, Min(0f)] private float stopOvershootDistance = 118f;
+    [SerializeField, Min(0.01f)] private float stopOvershootDuration = 0.2f;
+    [SerializeField, Min(0.01f)] private float stopSettleDuration = 0.3f;
 
     [Header("Win Line Presentation")]
     [SerializeField, Min(0.01f)] private float singleWinLineDuration = 0.7f;
@@ -87,6 +92,11 @@ public class SlotBehaviour : MonoBehaviour
     [Header("Win Line Visuals")]
     [Tooltip("Result line ID 0 maps to element 0 (Line_1), ID 1 maps to element 1 (Line_2), and so on.")]
     [SerializeField] private GameObject[] winLineObjects = Array.Empty<GameObject>();
+
+    [Header("Win Boxes")]
+    [Tooltip("The existing Animations root containing five column groups and three WinBox rows per column, used for normal and free-spin wins.")]
+    [SerializeField] private Transform freeSpinWinBoxesRoot;
+    [SerializeField, Min(0.1f)] private float freeSpinWinBoxDuration = 3f;
 
     [Header("Audio (Optional)")]
     [SerializeField] private AudioSource spinAudio;
@@ -111,6 +121,7 @@ public class SlotBehaviour : MonoBehaviour
     internal bool IsWaitingForLateResult => waitingForLateResult;
     internal bool IsResultPresentationActive => resultPresentationInProgress;
     internal bool IsStopRequested => stopSpinRequested;
+    internal double FreeSpinServerTotalWin => Math.Max(0d, freeSpinServerTotalWin);
     internal bool CanBeginSpinPresentation => isInitialized && !IsSpinning &&
         !waitingForLateResult && !resultPresentationInProgress && reels.Count > 0 &&
         myImages != null && myImages.Any(sprite => sprite != null);
@@ -121,6 +132,7 @@ public class SlotBehaviour : MonoBehaviour
     private readonly List<int> mappedServerSymbolIds = new List<int>();
     private readonly HashSet<int> reportedUnknownSymbolIds = new HashSet<int>();
     private readonly HashSet<int> reportedMissingWinLineIds = new HashSet<int>();
+    private readonly List<List<GameObject>> freeSpinWinBoxes = new List<List<GameObject>>();
     private bool serverSymbolMappingActive;
 
     internal List<List<int>> currentDisplayMatrix;
@@ -145,6 +157,9 @@ public class SlotBehaviour : MonoBehaviour
     private bool autoplayRoundInProgress;
     private bool requiredPresentationCompletionRaised;
     private bool shuttingDown;
+    private bool freeSpinWinPresentationActive;
+    private double freeSpinServerTotalWin;
+    private int freeSpinWinDecimalPlaces;
 
     private SpinSpeed spinSpeed = SpinSpeed.Normal;
 
@@ -180,10 +195,13 @@ public class SlotBehaviour : MonoBehaviour
     private void Awake()
     {
         ResolveSceneReferences();
+        ShowGoodLuckState();
         BuildSymbolSpriteArrays();
         BindGameManagerEvents();
         BuildReelCache();
+        BuildFreeSpinWinBoxCache();
         HideAllWinLineVisuals();
+        HideFreeSpinWinBoxes();
     }
 
     private void Start()
@@ -227,7 +245,15 @@ public class SlotBehaviour : MonoBehaviour
     private void ResolveSceneReferences()
     {
         TotalWin_text = TotalWin_text != null ? TotalWin_text : FindNamedText("WinAmount", "TotalWin");
+        winLabelText = winLabelText != null ? winLabelText : FindNamedText("WinText");
+        goodLuckText = goodLuckText != null ? goodLuckText : FindNamedText("GoodLuckText");
         WinLinesCount_Text = WinLinesCount_Text != null ? WinLinesCount_Text : FindNamedText("WinLinesCount");
+
+        if (TotalWin_text != null)
+        {
+            TotalWin_text.enableAutoSizing = false;
+            TotalWin_text.transform.localScale = Vector3.one;
+        }
 
         SetDeferredFreeSpinUiActive(false);
     }
@@ -450,7 +476,7 @@ public class SlotBehaviour : MonoBehaviour
         for (int reelIndex = 0; reelIndex < reelsRoot.childCount; reelIndex++)
         {
             RectTransform reelTransform = reelsRoot.GetChild(reelIndex) as RectTransform;
-            if (reelTransform == null)
+            if (reelTransform == null || !reelTransform.gameObject.activeInHierarchy)
             {
                 continue;
             }
@@ -503,6 +529,63 @@ public class SlotBehaviour : MonoBehaviour
 
         RefreshVisibleImageCache(DefaultRowCount);
         SetupSymbolButtons(DefaultRowCount);
+    }
+
+    private void BuildFreeSpinWinBoxCache()
+    {
+        freeSpinWinBoxes.Clear();
+        if (freeSpinWinBoxesRoot == null)
+        {
+            freeSpinWinBoxesRoot = Resources.FindObjectsOfTypeAll<Transform>()
+                .FirstOrDefault(candidate =>
+                    candidate != null &&
+                    candidate.gameObject.scene.IsValid() &&
+                    candidate.name == "Animations" &&
+                    candidate.GetComponentsInChildren<Transform>(true).Count(child => child.name == "WinBox") >=
+                    DefaultReelCount * DefaultRowCount);
+        }
+
+        if (freeSpinWinBoxesRoot == null)
+        {
+            Debug.LogWarning("[SlotBehaviour] Free-spin WinBox root was not found.", this);
+            return;
+        }
+
+        List<Transform> columns = Enumerable.Range(0, freeSpinWinBoxesRoot.childCount)
+            .Select(freeSpinWinBoxesRoot.GetChild)
+            .OrderBy(column => column is RectTransform rect ? rect.anchoredPosition.x : column.localPosition.x)
+            .Take(DefaultReelCount)
+            .ToList();
+        int columnCount = columns.Count;
+        for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
+        {
+            Transform column = columns[columnIndex];
+            List<GameObject> columnBoxes = new List<GameObject>();
+            List<Transform> rows = Enumerable.Range(0, column.childCount)
+                .Select(column.GetChild)
+                .OrderByDescending(row => row is RectTransform rect ? rect.anchoredPosition.y : row.localPosition.y)
+                .Take(DefaultRowCount)
+                .ToList();
+            int rowCount = rows.Count;
+
+            for (int rowIndex = 0; rowIndex < rowCount; rowIndex++)
+            {
+                Transform row = rows[rowIndex];
+                Transform symbolAnimation = row.Find("Animations");
+                if (symbolAnimation != null) symbolAnimation.gameObject.SetActive(false);
+
+                Transform winBox = row.Find("WinBox");
+                columnBoxes.Add(winBox != null ? winBox.gameObject : null);
+            }
+
+            while (columnBoxes.Count < DefaultRowCount) columnBoxes.Add(null);
+            freeSpinWinBoxes.Add(columnBoxes);
+        }
+
+        while (freeSpinWinBoxes.Count < DefaultReelCount)
+        {
+            freeSpinWinBoxes.Add(Enumerable.Repeat<GameObject>(null, DefaultRowCount).ToList());
+        }
     }
 
     private static float CalculateSymbolPitch(RectTransform reelTransform)
@@ -749,7 +832,7 @@ public class SlotBehaviour : MonoBehaviour
             SetupSymbolButtons(gameConfig.rowCount);
             bool canUseInitialMatrix = IsValidMatrix(initialMatrix) && MatrixUsesMappedSymbols(initialMatrix);
             ApplyMatrix(canUseInitialMatrix ? initialMatrix : GenerateRandomMatrix(gameConfig.rowCount));
-            SetWinAmount(0d, false);
+            ShowGoodLuckState();
             UpdateWinLineCount(gameConfig.paylineCount);
         }
         catch (Exception exception)
@@ -798,12 +881,14 @@ public class SlotBehaviour : MonoBehaviour
         {
             foreach (int reelIndex in result.expandedWildReels)
             {
-                if (reelIndex < 0 || reelIndex >= result.resultMatrix.Count || result.resultMatrix[reelIndex] == null)
+                if ((reelIndex != 1 && reelIndex != 3) ||
+                    reelIndex >= result.resultMatrix.Count || result.resultMatrix[reelIndex] == null)
                 {
                     continue;
                 }
 
-                for (int row = 0; row < result.resultMatrix[reelIndex].Count; row++)
+                int visibleRows = Mathf.Min(DefaultRowCount, result.resultMatrix[reelIndex].Count);
+                for (int row = 0; row < visibleRows; row++)
                 {
                     result.resultMatrix[reelIndex][row] = gameConfig.expandingWildSymbolId;
                 }
@@ -820,7 +905,8 @@ public class SlotBehaviour : MonoBehaviour
             ServerPosition position = giftWild?.position;
             if (position == null || position.col < 0 || position.col >= result.resultMatrix.Count ||
                 result.resultMatrix[position.col] == null || position.row < 0 ||
-                position.row >= result.resultMatrix[position.col].Count)
+                position.row >= result.resultMatrix[position.col].Count ||
+                (result.expandedWildReels != null && result.expandedWildReels.Contains(position.col)))
             {
                 continue;
             }
@@ -857,7 +943,15 @@ public class SlotBehaviour : MonoBehaviour
 
         StopWinningAnimations();
         HideSymbolInfoCard();
-        SetWinAmount(0d, false);
+        if (gameManager != null && gameManager.IsFreeSpinActive)
+        {
+            ShowFreeSpinWinDisplay(freeSpinServerTotalWin, freeSpinWinDecimalPlaces, false);
+        }
+        else
+        {
+            freeSpinWinPresentationActive = false;
+            ShowGoodLuckState();
+        }
 
         spinSpeed = speed;
         IsSpinning = true;
@@ -873,6 +967,22 @@ public class SlotBehaviour : MonoBehaviour
 
         spinRoutine = StartCoroutine(SpinCoroutine());
         return true;
+    }
+
+    internal void BeginFreeSpinWinPresentation(double initialServerTotalWin, int decimalPlaces)
+    {
+        freeSpinWinPresentationActive = true;
+        freeSpinServerTotalWin = Math.Max(0d, initialServerTotalWin);
+        freeSpinWinDecimalPlaces = decimalPlaces >= 0
+            ? Mathf.Clamp(decimalPlaces, 0, 28)
+            : GetDecimalPlaces(freeSpinServerTotalWin);
+        ShowFreeSpinWinDisplay(freeSpinServerTotalWin, freeSpinWinDecimalPlaces, false);
+    }
+
+    internal void EndFreeSpinWinPresentation(bool resetDisplay)
+    {
+        freeSpinWinPresentationActive = false;
+        if (resetDisplay) ShowGoodLuckState();
     }
 
     internal bool RequestStopPresentation()
@@ -1058,10 +1168,13 @@ public class SlotBehaviour : MonoBehaviour
         ReelRuntime reel = reels[reelIndex];
         reel.motionTween?.Kill();
         reel.motionTween = null;
-        ApplyMatrixColumn(reelIndex, resultColumn);
 
+        // Stage the reel outside the visible area before swapping in its result
+        // sprites, so the new values enter through the landing animation instead
+        // of visibly changing at the reel's current position.
         float landingDistance = Mathf.Max(stopAnticipationDistance, reel.symbolPitch * (quickStop ? 0.75f : 2f));
         reel.transform.anchoredPosition = reel.restingPosition + Vector2.up * landingDistance;
+        ApplyMatrixColumn(reelIndex, resultColumn);
 
         Sequence stopSequence = DOTween.Sequence().SetUpdate(true);
         stopSequence.Append(
@@ -1218,12 +1331,26 @@ public class SlotBehaviour : MonoBehaviour
         ApplyMatrix(result.resultMatrix);
 
         double displayedWin = result.grandTotalWin > 0d ? result.grandTotalWin : result.winAmount;
-        SetWinAmount(displayedWin, true);
+        bool isFreeSpinResult = freeSpinWinPresentationActive &&
+            gameManager != null && gameManager.IsFreeSpinActive;
 
-        if (displayedWin > 0d)
+        if (isFreeSpinResult)
         {
+            ShowFreeSpinResultWin(result);
+            if (result.winAmount > 0d) PlayAudio(winAudio);
+        }
+        else if (displayedWin > 0d)
+        {
+            ShowWinState(displayedWin, result.winAmountDecimalPlaces);
             PlayAudio(winAudio);
-            CheckWinPopups(result);
+            if (!(result.isFreeSpinResult || (gameManager != null && gameManager.IsFreeSpinActive)))
+            {
+                CheckWinPopups(result);
+            }
+        }
+        else
+        {
+            ShowGoodLuckState();
         }
 
         StartResultAnimations(result);
@@ -1292,23 +1419,148 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         lastPresentedResult = result;
-        bool loopIndividualLines = !autoplayRoundInProgress;
+        bool useFreeSpinWinBoxes = result.isFreeSpinResult || (gameManager != null && gameManager.IsFreeSpinActive);
         requiredPresentationCompletionRaised = false;
         resultPresentationInProgress = true;
-        winAnimationRoutine = StartCoroutine(PlayResultAnimations(result, loopIndividualLines));
+        winAnimationRoutine = StartCoroutine(PlayResultAnimations(result, useFreeSpinWinBoxes));
     }
 
-    private IEnumerator PlayResultAnimations(SpinResult result, bool loopIndividualLines)
+    private IEnumerator PlayResultAnimations(SpinResult result, bool useFreeSpinWinBoxes)
     {
         // Let the reel-stop callback reach GameManager before a zero-duration
         // result presentation can report completion in this same frame.
         yield return null;
 
-        yield return PlayWinLineVisuals(result.winLines, loopIndividualLines, CompleteRequiredResultPresentation);
+        if (useFreeSpinWinBoxes)
+        {
+            yield return PlayFreeSpinWinBoxes(result);
+        }
+        else
+        {
+            yield return PlayNormalWinPresentation(result);
+        }
+
         resultPresentationInProgress = false;
         autoplayRoundInProgress = false;
         winAnimationRoutine = null;
         CompleteRequiredResultPresentation();
+    }
+
+    private IEnumerator PlayFreeSpinWinBoxes(SpinResult result)
+    {
+        HideAllWinLineVisuals();
+        HideFreeSpinWinBoxes();
+
+        HashSet<int> winningPositions = CollectWinningPositions(result);
+        if (winningPositions.Count == 0 || freeSpinWinBoxesRoot == null)
+        {
+            yield break;
+        }
+
+        ShowWinBoxes(winningPositions);
+        yield return new WaitForSecondsRealtime(Mathf.Max(0.1f, freeSpinWinBoxDuration));
+        HideFreeSpinWinBoxes();
+    }
+
+    private IEnumerator PlayNormalWinPresentation(SpinResult result)
+    {
+        HideAllWinLineVisuals();
+        HideFreeSpinWinBoxes();
+
+        HashSet<int> winningPositions = CollectWinningPositions(result);
+        if (winningPositions.Count > 0)
+        {
+            ShowWinBoxes(winningPositions);
+            yield return new WaitForSecondsRealtime(NormalAllWinBoxesDuration);
+            HideFreeSpinWinBoxes();
+        }
+
+        List<WinLine> validWinLines = result?.winLines?
+            .Where(line => line != null && line.positions != null && line.positions.Count > 0)
+            .ToList() ?? new List<WinLine>();
+        if (validWinLines.Count == 0)
+        {
+            yield break;
+        }
+
+        WaitForSecondsRealtime lineDisplayDelay = new WaitForSecondsRealtime(
+            NormalSingleWinLineDuration);
+        bool completedFirstCycle = false;
+        while (!shuttingDown && !IsSpinning)
+        {
+            foreach (WinLine winLine in validWinLines)
+            {
+                if (shuttingDown || IsSpinning)
+                {
+                    HideAllWinLineVisuals();
+                    HideFreeSpinWinBoxes();
+                    yield break;
+                }
+
+                ShowWinLineVisual(winLine.lineId);
+                ShowWinBoxes(winLine.positions);
+                yield return lineDisplayDelay;
+                HideAllWinLineVisuals();
+                HideFreeSpinWinBoxes();
+            }
+
+            if (!completedFirstCycle)
+            {
+                completedFirstCycle = true;
+                CompleteRequiredResultPresentation();
+            }
+        }
+
+        HideAllWinLineVisuals();
+        HideFreeSpinWinBoxes();
+    }
+
+    private static HashSet<int> CollectWinningPositions(SpinResult result)
+    {
+        HashSet<int> winningPositions = new HashSet<int>();
+        if (result?.winLines != null)
+        {
+            foreach (WinLine winLine in result.winLines)
+            {
+                if (winLine?.positions == null) continue;
+                foreach (int position in winLine.positions) winningPositions.Add(position);
+            }
+        }
+
+        if (result?.scatterData?.positions != null && result.scatterData.winAmount > 0d)
+        {
+            foreach (int position in result.scatterData.positions) winningPositions.Add(position);
+        }
+
+        return winningPositions;
+    }
+
+    private void ShowWinBoxes(IEnumerable<int> positions)
+    {
+        HideFreeSpinWinBoxes();
+        if (positions == null || freeSpinWinBoxesRoot == null)
+        {
+            return;
+        }
+
+        bool showedAnyBox = false;
+        foreach (int position in positions.Distinct())
+        {
+            int rowIndex = position / DefaultReelCount;
+            int columnIndex = position % DefaultReelCount;
+            if (columnIndex < 0 || columnIndex >= freeSpinWinBoxes.Count ||
+                rowIndex < 0 || rowIndex >= freeSpinWinBoxes[columnIndex].Count)
+            {
+                continue;
+            }
+
+            GameObject winBox = freeSpinWinBoxes[columnIndex][rowIndex];
+            if (winBox == null) continue;
+            winBox.SetActive(true);
+            showedAnyBox = true;
+        }
+
+        freeSpinWinBoxesRoot.gameObject.SetActive(showedAnyBox);
     }
 
     private void CompleteRequiredResultPresentation()
@@ -1405,6 +1657,19 @@ public class SlotBehaviour : MonoBehaviour
         }
     }
 
+    private void HideFreeSpinWinBoxes()
+    {
+        foreach (List<GameObject> column in freeSpinWinBoxes)
+        {
+            foreach (GameObject winBox in column)
+            {
+                if (winBox != null) winBox.SetActive(false);
+            }
+        }
+
+        if (freeSpinWinBoxesRoot != null) freeSpinWinBoxesRoot.gameObject.SetActive(false);
+    }
+
     private void ReportMissingWinLineVisual(int resultLineId)
     {
         if (reportedMissingWinLineIds.Add(resultLineId))
@@ -1425,9 +1690,10 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         HideAllWinLineVisuals();
+        HideFreeSpinWinBoxes();
     }
 
-    private void SetWinAmount(double amount, bool animate)
+    private void SetWinAmount(double amount, bool animate, int decimalPlaces, double startAmount = 0d)
     {
         winAmountTween?.Kill();
 
@@ -1438,11 +1704,12 @@ public class SlotBehaviour : MonoBehaviour
 
         if (!animate || amount <= 0d)
         {
-            TotalWin_text.text = FormatAmount(Math.Max(0d, amount));
+            TotalWin_text.text = FormatAmount(Math.Max(0d, amount), decimalPlaces);
             return;
         }
 
-        double displayed = 0d;
+        double displayed = Math.Max(0d, startAmount);
+        TotalWin_text.text = FormatAmount(displayed, decimalPlaces);
         winAmountTween = DOTween.To(
                 () => displayed,
                 value =>
@@ -1450,13 +1717,103 @@ public class SlotBehaviour : MonoBehaviour
                     displayed = value;
                     if (TotalWin_text != null)
                     {
-                        TotalWin_text.text = FormatAmount(displayed);
+                        TotalWin_text.text = FormatAmount(displayed, decimalPlaces);
                     }
                 },
                 amount,
                 0.65f)
             .SetEase(Ease.OutCubic)
             .SetUpdate(true);
+    }
+
+    private void ShowGoodLuckState()
+    {
+        winAmountTween?.Kill();
+        winAmountTween = null;
+
+        if (TotalWin_text != null)
+        {
+            TotalWin_text.text = FormatAmount(0d, 0);
+            TotalWin_text.transform.localScale = Vector3.one;
+            TotalWin_text.gameObject.SetActive(false);
+        }
+
+        if (winLabelText != null)
+        {
+            winLabelText.transform.localScale = Vector3.one;
+            winLabelText.gameObject.SetActive(false);
+        }
+
+        if (goodLuckText != null)
+        {
+            goodLuckText.transform.localScale = Vector3.one;
+            goodLuckText.gameObject.SetActive(true);
+        }
+    }
+
+    private void ShowWinState(double amount, int decimalPlaces)
+    {
+        int safeDecimalPlaces = decimalPlaces >= 0
+            ? Mathf.Clamp(decimalPlaces, 0, 28)
+            : GetDecimalPlaces(amount);
+
+        if (goodLuckText != null)
+        {
+            goodLuckText.gameObject.SetActive(false);
+        }
+
+        if (winLabelText != null)
+        {
+            winLabelText.transform.localScale = Vector3.one;
+            winLabelText.gameObject.SetActive(true);
+        }
+
+        if (TotalWin_text != null)
+        {
+            TotalWin_text.text = FormatAmount(0d, safeDecimalPlaces);
+            TotalWin_text.transform.localScale = Vector3.one;
+            TotalWin_text.gameObject.SetActive(true);
+        }
+
+        SetWinAmount(amount, true, safeDecimalPlaces);
+    }
+
+    private void ShowFreeSpinResultWin(SpinResult result)
+    {
+        double previousTotal = Math.Max(0d, freeSpinServerTotalWin);
+        double serverTotal = Math.Max(0d, result?.serverTotalRoundWin ?? 0d);
+        int resultDecimalPlaces = result != null && result.winAmountDecimalPlaces >= 0
+            ? Mathf.Clamp(result.winAmountDecimalPlaces, 0, 28)
+            : GetDecimalPlaces(serverTotal);
+        freeSpinWinDecimalPlaces = resultDecimalPlaces;
+
+        freeSpinServerTotalWin = serverTotal;
+        bool totalChanged = Math.Abs(serverTotal - previousTotal) > 0.0000001d;
+        ShowFreeSpinWinDisplay(serverTotal, freeSpinWinDecimalPlaces, totalChanged, previousTotal);
+    }
+
+    private void ShowFreeSpinWinDisplay(
+        double amount,
+        int decimalPlaces,
+        bool animate,
+        double startAmount = 0d)
+    {
+        int safeDecimalPlaces = Mathf.Clamp(decimalPlaces, 0, 28);
+        if (goodLuckText != null) goodLuckText.gameObject.SetActive(false);
+
+        if (winLabelText != null)
+        {
+            winLabelText.transform.localScale = Vector3.one;
+            winLabelText.gameObject.SetActive(true);
+        }
+
+        if (TotalWin_text != null)
+        {
+            TotalWin_text.transform.localScale = Vector3.one;
+            TotalWin_text.gameObject.SetActive(true);
+        }
+
+        SetWinAmount(amount, animate, safeDecimalPlaces, startAmount);
     }
 
     #endregion
@@ -1532,9 +1889,20 @@ public class SlotBehaviour : MonoBehaviour
         return matrix;
     }
 
-    private static string FormatAmount(double amount)
+    private static int GetDecimalPlaces(double amount)
     {
-        return amount.ToString("0.00##");
+        string amountText = amount.ToString("0.################", CultureInfo.InvariantCulture);
+        int decimalPoint = amountText.IndexOf('.');
+        return decimalPoint < 0 ? 0 : amountText.Length - decimalPoint - 1;
+    }
+
+    private static string FormatAmount(double amount, int decimalPlaces)
+    {
+        int safeDecimalPlaces = Math.Max(0, Math.Min(28, decimalPlaces));
+        string format = safeDecimalPlaces == 0
+            ? "0"
+            : "0." + new string('0', safeDecimalPlaces);
+        return amount.ToString(format, CultureInfo.InvariantCulture);
     }
 
     private static void PlayAudio(AudioSource audioSource)

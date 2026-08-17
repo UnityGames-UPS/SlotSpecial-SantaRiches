@@ -1,10 +1,13 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using UnityEngine;
 using Best.SocketIO;
 using Best.SocketIO.Events;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 public class SocketIOManager : MonoBehaviour
 {
@@ -323,6 +326,7 @@ public class SocketIOManager : MonoBehaviour
                 betAmount,
                 gameConfig
             );
+            result.winAmountDecimalPlaces = GetWinAmountDecimalPlaces(jsonData, serverResponse);
 
             result.playerData.currentBetIndex = gameManager.CurrentBetIndex;
 
@@ -333,6 +337,77 @@ public class SocketIOManager : MonoBehaviour
             Debug.LogError($"[SocketIO] Result parse failed: {e.Message}");
             gameManager?.OnSpinRequestFailed("Failed to read the spin result from the server.");
         }
+    }
+
+    private static int GetWinAmountDecimalPlaces(string jsonData, ServerSpinResponse serverResponse)
+    {
+        if (serverResponse?.payload == null)
+        {
+            return 0;
+        }
+
+        string amountProperty;
+        double fallbackAmount;
+        if (serverResponse.payload.spinWin.HasValue)
+        {
+            amountProperty = "totalWin";
+            fallbackAmount = serverResponse.payload.totalWin;
+        }
+        else if (serverResponse.payload.grandTotalWin > 0d)
+        {
+            amountProperty = "grandTotalWin";
+            fallbackAmount = serverResponse.payload.grandTotalWin;
+        }
+        else if (serverResponse.payload.winAmount > 0d)
+        {
+            amountProperty = "winAmount";
+            fallbackAmount = serverResponse.payload.winAmount;
+        }
+        else
+        {
+            amountProperty = "totalWin";
+            fallbackAmount = serverResponse.payload.totalWin;
+        }
+
+        try
+        {
+            using (StringReader stringReader = new StringReader(jsonData))
+            using (JsonTextReader jsonReader = new JsonTextReader(stringReader))
+            {
+                jsonReader.FloatParseHandling = FloatParseHandling.Decimal;
+                JObject responseObject = JObject.Load(jsonReader);
+                JToken amountToken = responseObject["payload"]?[amountProperty];
+
+                if (amountToken != null)
+                {
+                    decimal preciseAmount;
+                    bool parsed = amountToken.Type == JTokenType.String
+                        ? decimal.TryParse(
+                            amountToken.Value<string>(),
+                            NumberStyles.Float,
+                            CultureInfo.InvariantCulture,
+                            out preciseAmount)
+                        : decimal.TryParse(
+                            amountToken.ToString(Formatting.None),
+                            NumberStyles.Float,
+                            CultureInfo.InvariantCulture,
+                            out preciseAmount);
+
+                    if (parsed)
+                    {
+                        return (decimal.GetBits(preciseAmount)[3] >> 16) & 0x7F;
+                    }
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"[SocketIO] Could not preserve win amount precision: {exception.Message}");
+        }
+
+        string fallbackText = fallbackAmount.ToString("0.################", CultureInfo.InvariantCulture);
+        int decimalPoint = fallbackText.IndexOf('.');
+        return decimalPoint < 0 ? 0 : fallbackText.Length - decimalPoint - 1;
     }
 
     private void OnAnotherDevice(string data)
