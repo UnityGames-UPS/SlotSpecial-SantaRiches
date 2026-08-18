@@ -41,9 +41,6 @@ public class SocketIOManager : MonoBehaviour
     private Coroutine focusCheckRoutine;
     private float maxBackgroundTime = 60f;
 
-    [Header("Debug Settings")]
-    [SerializeField] private bool enablePingDebug = false;
-
     private Coroutine pingCoroutine;
     private float lastPongTime;
     private float pingSendTime;
@@ -148,7 +145,7 @@ public class SocketIOManager : MonoBehaviour
 
         gameSocket.On<ConnectResponse>(SocketIOEventTypes.Connect, OnSocketConnected);
         gameSocket.On(SocketIOEventTypes.Disconnect, OnSocketDisconnected);
-        gameSocket.On<Error>(SocketIOEventTypes.Error, OnSocketError);
+        gameSocket.On<Error>(SocketIOEventTypes.Error, OnError);
 
         gameSocket.On<string>("game:init", OnInitReceived);
         gameSocket.On<string>("result", OnResultReceived);
@@ -226,7 +223,7 @@ public class SocketIOManager : MonoBehaviour
         }
     }
 
-    private void OnSocketError(Error err)
+    private void OnError(Error err)
     {
         Debug.LogError($"[SocketIO] Error: {err.message}");
 
@@ -426,9 +423,9 @@ public class SocketIOManager : MonoBehaviour
 
         try
         {
-            var syncData = JsonConvert.DeserializeObject<BalanceSyncData>(jsonData);
-            
-            if (gameManager != null)
+            BalanceSyncData syncData = JsonConvert.DeserializeObject<BalanceSyncData>(jsonData);
+
+            if (syncData != null && gameManager != null)
             {
                 gameManager.UpdateBalanceFromServer(syncData.balance);
             }
@@ -571,11 +568,6 @@ public class SocketIOManager : MonoBehaviour
             pingSendTime = Time.realtimeSinceStartup;
             waitingForPong = true;
             gameSocket.Emit("ping");
-
-            if (enablePingDebug)
-            {
-                Debug.Log($"[SocketIO] Ping sent at {pingSendTime:F3}s");
-            }
         }
     }
 
@@ -598,10 +590,6 @@ public class SocketIOManager : MonoBehaviour
                 uiManager.UpdatePingDisplay(pingMs);
             }
 
-            if (enablePingDebug)
-            {
-                Debug.Log($"[SocketIO] Pong received | Latency: {pingMs} ms");
-            }
         }
 
         if (missedPongs > 0)
@@ -754,7 +742,5 @@ public class AuthTokenData
 [Serializable]
 public class BalanceSyncData
 {
-    public string userId;
-    public string gameId;
     public double balance;
 }

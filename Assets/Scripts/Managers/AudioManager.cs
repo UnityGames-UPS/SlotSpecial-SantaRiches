@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -34,34 +35,77 @@ public sealed class AudioManager : MonoBehaviour
     internal bool MusicEnabled { get; private set; } = true;
     internal bool SfxEnabled { get; private set; } = true;
 
+    private readonly List<AudioSource> allSources = new List<AudioSource>();
+    private readonly Dictionary<AudioSource, bool> preFocusMuteState = new Dictionary<AudioSource, bool>();
+    private bool isForceMuted;
+
     private void Awake()
     {
+        RefreshAudioSources();
         LoadSettings();
         ApplySettings(false);
     }
 
+    private void OnApplicationFocus(bool focus)
+    {
+        SetMuteAll(!focus);
+    }
+
     internal void SetMusicVolume(float value)
     {
+        ClearForcedMuteForUserInteraction();
         MusicVolume = Mathf.Clamp01(value);
         ApplySettings();
     }
 
     internal void SetSfxVolume(float value)
     {
+        ClearForcedMuteForUserInteraction();
         SfxVolume = Mathf.Clamp01(value);
         ApplySettings();
     }
 
     internal void SetMusicEnabled(bool enabled)
     {
+        ClearForcedMuteForUserInteraction();
         MusicEnabled = enabled;
         ApplySettings();
     }
 
     internal void SetSfxEnabled(bool enabled)
     {
+        ClearForcedMuteForUserInteraction();
         SfxEnabled = enabled;
         ApplySettings();
+    }
+
+    internal void SetMuteAll(bool forceMute)
+    {
+        if (forceMute == isForceMuted) return;
+        isForceMuted = forceMute;
+        RefreshAudioSources();
+
+        foreach (AudioSource source in allSources)
+        {
+            if (source == null) continue;
+
+            if (forceMute)
+            {
+                preFocusMuteState[source] = source.mute;
+                source.mute = true;
+            }
+            else
+            {
+                source.mute = preFocusMuteState.TryGetValue(source, out bool wasMuted)
+                    ? wasMuted
+                    : source.mute;
+            }
+        }
+
+        if (!forceMute)
+        {
+            preFocusMuteState.Clear();
+        }
     }
 
     internal void PlayNormalClick() => PlaySfx(normalClickClip);
@@ -86,6 +130,45 @@ public sealed class AudioManager : MonoBehaviour
         SfxVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(SfxVolumeKey, 1f));
         MusicEnabled = PlayerPrefs.GetInt(MusicEnabledKey, 1) != 0;
         SfxEnabled = PlayerPrefs.GetInt(SfxEnabledKey, 1) != 0;
+    }
+
+    private void ClearForcedMuteForUserInteraction()
+    {
+        if (!isForceMuted) return;
+
+        isForceMuted = false;
+        RefreshAudioSources();
+        foreach (AudioSource source in allSources)
+        {
+            if (source == null) continue;
+            source.mute = preFocusMuteState.TryGetValue(source, out bool wasMuted)
+                ? wasMuted
+                : source.mute;
+        }
+        preFocusMuteState.Clear();
+    }
+
+    private void RefreshAudioSources()
+    {
+        allSources.RemoveAll(source => source == null);
+        AddAudioSource(musicSource);
+        AddAudioSource(sfxSource);
+
+        foreach (AudioSource source in Resources.FindObjectsOfTypeAll<AudioSource>())
+        {
+            if (source != null && source.gameObject.scene.IsValid())
+            {
+                AddAudioSource(source);
+            }
+        }
+    }
+
+    private void AddAudioSource(AudioSource source)
+    {
+        if (source != null && !allSources.Contains(source))
+        {
+            allSources.Add(source);
+        }
     }
 
     private void ApplySettings(bool persist = true)

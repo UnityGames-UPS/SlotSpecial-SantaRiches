@@ -64,6 +64,8 @@ public class GameManager : MonoBehaviour
     internal bool IsWaitingForLateResult => slotBehaviour != null && slotBehaviour.IsWaitingForLateResult;
     internal bool IsResultPresentationActive =>
         slotBehaviour != null && slotBehaviour.IsResultPresentationActive;
+    internal bool IsExtraGiftWildRevealActive =>
+        slotBehaviour != null && slotBehaviour.IsExtraGiftWildRevealActive;
     internal bool IsAutoplayRoundSettling => autoplayRoundInProgress && !IsAutoplayActive &&
         (IsCurrentlySpinning || IsWaitingForLateResult || IsResultPresentationActive);
     internal bool CanAffordCurrentBet => gameData.DisplayedBalance + 0.0000001d >= CurrentTotalBet;
@@ -74,6 +76,7 @@ public class GameManager : MonoBehaviour
     internal bool CanChangeBet => gameData.IsInitialized && !IsAutoplayActive && !autoplayRoundInProgress &&
         CurrentState == GameState.Idle && !IsCurrentlySpinning && !IsWaitingForLateResult &&
         !IsResultPresentationActive;
+    internal bool CanChangeSpinSpeed => gameData.IsInitialized;
 
     private double CreditDivisor => gameData.Config != null && gameData.Config.creditDivisor > 0d
         ? gameData.Config.creditDivisor
@@ -87,6 +90,7 @@ public class GameManager : MonoBehaviour
     private int freeSpinTotal;
     private double freeSpinStartingBalance;
     private double freeSpinInitialServerTotalWin;
+    private bool freeSpinBalanceDeferred;
     private SpinResult lastCompletedResult;
 
     private void Awake()
@@ -213,8 +217,11 @@ public class GameManager : MonoBehaviour
         IsFreeSpinAwaitingStart = false;
         IsFreeSpinActive = true;
         IsFreeSpinAwaitingTake = false;
-        freeSpinStartingBalance = gameData.DisplayedBalance;
-        freeSpinInitialServerTotalWin = Math.Max(0d, lastCompletedResult?.serverTotalRoundWin ?? 0d);
+        if (!freeSpinBalanceDeferred)
+        {
+            freeSpinStartingBalance = gameData.DisplayedBalance;
+            freeSpinBalanceDeferred = true;
+        }
         CurrentState = GameState.FreeSpinMode;
         slotBehaviour.BeginFreeSpinWinPresentation(
             freeSpinInitialServerTotalWin,
@@ -259,8 +266,8 @@ public class GameManager : MonoBehaviour
         }
 
         double serverTotalWin = slotBehaviour != null ? slotBehaviour.FreeSpinServerTotalWin : 0d;
-        double freeSpinOnlyWin = Math.Max(0d, serverTotalWin - freeSpinInitialServerTotalWin);
-        double expectedBalance = Math.Max(0d, freeSpinStartingBalance + freeSpinOnlyWin);
+        double totalFreeGamesWin = Math.Max(0d, serverTotalWin);
+        double expectedBalance = Math.Max(0d, freeSpinStartingBalance + totalFreeGamesWin);
         double authoritativeBalance = Math.Max(0d, gameData.Player?.balance ?? 0d);
         if (Math.Abs(expectedBalance - authoritativeBalance) > 0.0001d)
         {
@@ -314,7 +321,7 @@ public class GameManager : MonoBehaviour
 
     internal bool CycleSpinSpeed()
     {
-        if (!CanChangeBet)
+        if (!CanChangeSpinSpeed)
         {
             return false;
         }
@@ -324,15 +331,26 @@ public class GameManager : MonoBehaviour
             : CurrentSpinSpeed == SpinSpeed.Turbo
                 ? SpinSpeed.QuickSpin
                 : SpinSpeed.Normal;
+
+        bool canApplyToCurrentSpin = CurrentState == GameState.Spinning && !IsStopRequested &&
+            slotBehaviour != null && slotBehaviour.IsCurrentlySpinning;
+        if (canApplyToCurrentSpin)
+        {
+            slotBehaviour.ApplySpinSpeed(CurrentSpinSpeed);
+            if (CurrentSpinSpeed == SpinSpeed.QuickSpin)
+            {
+                IsStopRequested = true;
+                CurrentState = GameState.Stopping;
+            }
+        }
+
         NotifyStateChanged();
         return true;
     }
 
     internal void UpdateBalanceFromServer(double balance)
     {
-        gameData.SynchronizeBalance(
-            balance,
-            !IsCurrentlySpinning && !autoplayRoundInProgress && !IsFreeSpinActive);
+        gameData.SynchronizeBalance(balance, true);
         NotifyStateChanged();
     }
 
@@ -423,9 +441,19 @@ public class GameManager : MonoBehaviour
 
     private void HandleRoundStopped(SpinResult result)
     {
+        bool triggersFreeSpins = ShouldOfferFreeSpins(result);
+        if (triggersFreeSpins && !freeSpinBalanceDeferred)
+        {
+            freeSpinStartingBalance = gameData.DisplayedBalance;
+            freeSpinInitialServerTotalWin = Math.Max(
+                Math.Max(0d, result?.serverTotalRoundWin ?? 0d),
+                Math.Max(0d, result?.winAmount ?? 0d));
+            freeSpinBalanceDeferred = true;
+        }
+
         if (result?.playerData != null)
         {
-            gameData.ApplySpinResult(result, !IsFreeSpinActive);
+            gameData.ApplySpinResult(result, !freeSpinBalanceDeferred);
         }
 
         lastCompletedResult = result;
@@ -586,7 +614,14 @@ public class GameManager : MonoBehaviour
         freeSpinRoutine = null;
         IsFreeSpinAwaitingTake = true;
         CurrentState = GameState.FreeSpinMode;
-        uiManager?.ShowFreeSpinCompletion();
+
+        double serverTotalWin = slotBehaviour != null ? slotBehaviour.FreeSpinServerTotalWin : 0d;
+        double totalFreeGamesWin = Math.Max(0d, serverTotalWin);
+        string formattedFreeSpinWin = slotBehaviour != null
+            ? slotBehaviour.ShowFreeSpinCompletionWin(totalFreeGamesWin)
+            : "0";
+
+        uiManager?.ShowFreeSpinCompletion(formattedFreeSpinWin);
         NotifyStateChanged();
     }
 
@@ -605,6 +640,7 @@ public class GameManager : MonoBehaviour
         freeSpinTotal = 0;
         freeSpinStartingBalance = 0d;
         freeSpinInitialServerTotalWin = 0d;
+        freeSpinBalanceDeferred = false;
         FreeSpinsRemaining = 0;
         if (resetWinDisplay) gameData.RestoreAuthoritativeBalance();
         slotBehaviour?.EndFreeSpinWinPresentation(resetWinDisplay);
@@ -658,6 +694,7 @@ public class GameManager : MonoBehaviour
         slotBehaviour.RoundStopped += HandleRoundStopped;
         slotBehaviour.RequiredPresentationCompleted += HandleRequiredPresentationCompleted;
         slotBehaviour.PresentationFailed += HandlePresentationFailed;
+        slotBehaviour.SpinControlPresentationChanged += NotifyStateChanged;
         viewEventsBound = true;
     }
 
@@ -671,6 +708,7 @@ public class GameManager : MonoBehaviour
         slotBehaviour.RoundStopped -= HandleRoundStopped;
         slotBehaviour.RequiredPresentationCompleted -= HandleRequiredPresentationCompleted;
         slotBehaviour.PresentationFailed -= HandlePresentationFailed;
+        slotBehaviour.SpinControlPresentationChanged -= NotifyStateChanged;
         viewEventsBound = false;
     }
 
