@@ -25,7 +25,6 @@ public class GameManager : MonoBehaviour
     [SerializeField, Min(0f)] private float autoSpinWinGap = 0.9f;
 
     [Header("Free Spin Feature")]
-    [SerializeField, Min(1)] private int totalFreeSpins = 6;
     [SerializeField, Min(0f)] private float freeSpinGap = 0.25f;
 
     private readonly GameRuntimeData gameData = new GameRuntimeData();
@@ -147,11 +146,6 @@ public class GameManager : MonoBehaviour
             result.playerData.currentBetIndex = gameData.CurrentBetIndex;
         }
 
-        if (IsFreeSpinActive)
-        {
-            ApplyFreeSpinResultProgress(result);
-        }
-
         SpinResultReceived?.Invoke(result);
     }
 
@@ -226,16 +220,46 @@ public class GameManager : MonoBehaviour
         slotBehaviour.BeginFreeSpinWinPresentation(
             freeSpinInitialServerTotalWin,
             lastCompletedResult?.winAmountDecimalPlaces ?? -1);
-        uiManager?.BeginFreeSpinPresentation(FreeSpinTotal, FreeSpinsRemaining);
         NotifyStateChanged();
 
-        if (StartNextFreeSpinRound())
+        if (uiManager != null)
         {
+            uiManager.BeginFreeSpinPresentation(
+                FreeSpinTotal,
+                FreeSpinsRemaining,
+                BeginFreeSpinStartReelTransition);
             return true;
         }
 
-        ResetFreeSpinFeature();
-        return false;
+        BeginFreeSpinStartReelTransition();
+        return true;
+    }
+
+    private void BeginFreeSpinStartReelTransition()
+    {
+        if (!IsFreeSpinActive)
+        {
+            return;
+        }
+
+        if (slotBehaviour == null ||
+            !slotBehaviour.PlayFreeSpinStartSymbolTransition(StartFirstFreeSpinAfterTransition))
+        {
+            HandlePresentationFailed("The Free Games reel transition could not be started.");
+        }
+    }
+
+    private void StartFirstFreeSpinAfterTransition()
+    {
+        if (!IsFreeSpinActive)
+        {
+            return;
+        }
+
+        if (!StartNextFreeSpinRound())
+        {
+            HandlePresentationFailed("The first Free Game could not be started.");
+        }
     }
 
     internal bool StartAutoSpin(int spinCount)
@@ -276,9 +300,22 @@ public class GameManager : MonoBehaviour
                 $"server returned {authoritativeBalance:0.####}. Using the server balance.");
         }
 
-        gameData.RestoreAuthoritativeBalance();
-        ResetFreeSpinFeature(false);
+        IsFreeSpinAwaitingTake = false;
+        NotifyStateChanged();
+
+        if (uiManager != null && uiManager.PlayFreeSpinCollectTransition(CompleteFreeSpinCollection))
+        {
+            return true;
+        }
+
+        CompleteFreeSpinCollection();
         return true;
+    }
+
+    private void CompleteFreeSpinCollection()
+    {
+        gameData.RestoreAuthoritativeBalance();
+        ResetFreeSpinFeature(false, false);
     }
 
     internal void StopAutoSpin()
@@ -408,6 +445,12 @@ public class GameManager : MonoBehaviour
         try
         {
             socketManager.SendSpinRequest(gameData.CurrentBetIndex, freeSpinRound);
+            if (freeSpinRound)
+            {
+                uiManager?.UpdateFreeSpinCounter(
+                    FreeSpinTotal,
+                    Mathf.Max(0, FreeSpinsRemaining - 1));
+            }
         }
         catch (Exception exception)
         {
@@ -457,6 +500,10 @@ public class GameManager : MonoBehaviour
         }
 
         lastCompletedResult = result;
+        if (IsFreeSpinActive)
+        {
+            ApplyFreeSpinResultProgress(result);
+        }
         IsStopRequested = false;
         CurrentState = IsResultPresentationActive ? GameState.ShowingWin : GameState.Idle;
         NotifyStateChanged();
@@ -490,7 +537,7 @@ public class GameManager : MonoBehaviour
 
         if (ShouldOfferFreeSpins(completedResult))
         {
-            OfferFreeSpins();
+            OfferFreeSpins(completedResult);
             return;
         }
 
@@ -544,15 +591,21 @@ public class GameManager : MonoBehaviour
             result.freeSpinData.spinsAwarded > 0 && !result.isFreeSpinResult;
     }
 
-    private void OfferFreeSpins()
+    private void OfferFreeSpins(SpinResult triggerResult)
     {
+        int awardedSpins = Mathf.Max(0, triggerResult?.freeSpinData?.spinsAwarded ?? 0);
+        int serverTotal = Mathf.Max(0, triggerResult?.serverTotalSpins ?? 0);
+        int serverRemaining = Mathf.Max(0, triggerResult?.serverSpinsRemaining ?? 0);
+
         StopAutoSpin();
         IsFreeSpinAwaitingStart = true;
         IsFreeSpinActive = false;
-        freeSpinTotal = Mathf.Max(1, totalFreeSpins);
-        FreeSpinsRemaining = FreeSpinTotal;
+        freeSpinTotal = serverTotal > 0 ? serverTotal : awardedSpins;
+        FreeSpinsRemaining = serverRemaining > 0
+            ? serverRemaining
+            : Mathf.Max(0, triggerResult?.freeSpinData?.remainingSpins ?? freeSpinTotal);
         CurrentState = GameState.FreeSpinMode;
-        uiManager?.ShowFreeSpinOffer(FreeSpinTotal);
+        uiManager?.ShowFreeSpinOffer(FreeSpinTotal, FreeSpinsRemaining);
         NotifyStateChanged();
     }
 
@@ -570,14 +623,18 @@ public class GameManager : MonoBehaviour
     {
         if (result == null) return;
 
-        if (result.freeSpinData != null && result.freeSpinData.isRetrigger)
+        int serverTotal = Mathf.Max(0, result.serverTotalSpins);
+        if (serverTotal > 0)
         {
-            freeSpinTotal += Mathf.Max(1, totalFreeSpins);
+            freeSpinTotal = serverTotal;
+        }
+        else if (result.freeSpinData != null && result.freeSpinData.isRetrigger)
+        {
+            freeSpinTotal += Mathf.Max(0, result.freeSpinData.spinsAwarded);
         }
 
         FreeSpinsRemaining = Mathf.Max(0, result.serverSpinsRemaining);
         uiManager?.UpdateFreeSpinCounter(FreeSpinTotal, FreeSpinsRemaining);
-        NotifyStateChanged();
     }
 
     private void StartFreeSpinDelay(float delay)
@@ -625,7 +682,7 @@ public class GameManager : MonoBehaviour
         NotifyStateChanged();
     }
 
-    private void ResetFreeSpinFeature(bool resetWinDisplay = true)
+    private void ResetFreeSpinFeature(bool resetWinDisplay = true, bool resetUiPresentation = true)
     {
         if (freeSpinRoutine != null)
         {
@@ -643,8 +700,9 @@ public class GameManager : MonoBehaviour
         freeSpinBalanceDeferred = false;
         FreeSpinsRemaining = 0;
         if (resetWinDisplay) gameData.RestoreAuthoritativeBalance();
+        slotBehaviour?.CancelFreeSpinStartSymbolTransition();
         slotBehaviour?.EndFreeSpinWinPresentation(resetWinDisplay);
-        uiManager?.ResetFreeSpinPresentation();
+        if (resetUiPresentation) uiManager?.ResetFreeSpinPresentation();
 
         if (gameData.IsInitialized && !IsCurrentlySpinning && !IsResultPresentationActive)
         {

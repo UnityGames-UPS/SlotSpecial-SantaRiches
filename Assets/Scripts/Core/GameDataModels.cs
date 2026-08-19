@@ -837,7 +837,7 @@ public static class InitDataConverter
                 ? new FreeSpinData
                 {
                     isTriggered = true,
-                    isRetrigger = true,
+                    isRetrigger = serverResponse.payload.isFreeSpin,
                     spinsAwarded = Math.Max(0, serverResponse.payload.scatter.spinsAwarded),
                     remainingSpins = Math.Max(0, serverResponse.payload.scatter.spinsAwarded),
                     isBought = false

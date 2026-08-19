@@ -113,6 +113,10 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField] private Transform freeSpinWinBoxesRoot;
     [SerializeField, Min(0.1f)] private float freeSpinWinBoxDuration = 3f;
 
+    [Header("Free Spin Start Transition")]
+    [SerializeField, Min(0f)] private float freeSpinSymbolFadeOutDuration = 1f;
+    [SerializeField, Min(0f)] private float freeSpinSymbolFadeInDuration = 1f;
+
     [Header("Audio (Optional)")]
     [SerializeField] private AudioSource spinAudio;
     [SerializeField] private AudioSource winAudio;
@@ -139,7 +143,7 @@ public class SlotBehaviour : MonoBehaviour
     internal bool IsStopRequested => stopSpinRequested;
     internal bool IsExtraGiftWildRevealActive => extraGiftWildRevealActive;
     internal double FreeSpinServerTotalWin => Math.Max(0d, freeSpinServerTotalWin);
-    internal bool CanBeginSpinPresentation => isInitialized && !IsSpinning &&
+    internal bool CanBeginSpinPresentation => isInitialized && !IsSpinning && freeSpinStartSymbolTween == null &&
         !waitingForLateResult && !resultPresentationInProgress && reels.Count > 0 &&
         myImages != null && myImages.Any(sprite => sprite != null);
 
@@ -163,6 +167,7 @@ public class SlotBehaviour : MonoBehaviour
     private Coroutine winAnimationRoutine;
     private Tween winAmountTween;
     private Tween reelWinAmountTween;
+    private Tween freeSpinStartSymbolTween;
 
     private bool gameManagerEventsBound;
     private bool isInitialized;
@@ -1164,6 +1169,85 @@ public class SlotBehaviour : MonoBehaviour
         ShowFreeSpinWinDisplay(freeSpinServerTotalWin, freeSpinWinDecimalPlaces, false);
     }
 
+    internal bool PlayFreeSpinStartSymbolTransition(Action onComplete)
+    {
+        if (!isInitialized || IsSpinning || freeSpinStartSymbolTween != null)
+        {
+            return false;
+        }
+
+        List<Image> visibleSymbols = GetVisibleSymbolImages();
+        if (visibleSymbols.Count == 0)
+        {
+            ApplyMatrix(GenerateRandomMatrix(GetRowCount()));
+            onComplete?.Invoke();
+            return true;
+        }
+
+        SetSymbolAlpha(visibleSymbols, 1f);
+
+        Sequence transition = DOTween.Sequence().SetUpdate(true);
+        foreach (Image symbol in visibleSymbols)
+        {
+            transition.Join(
+                symbol
+                    .DOFade(0f, freeSpinSymbolFadeOutDuration)
+                    .SetEase(Ease.InOutSine));
+        }
+
+        transition.AppendCallback(() => ApplyMatrix(GenerateRandomMatrix(GetRowCount())));
+        foreach (Image symbol in visibleSymbols)
+        {
+            transition.Join(
+                symbol
+                    .DOFade(1f, freeSpinSymbolFadeInDuration)
+                    .SetEase(Ease.InOutSine));
+        }
+
+        transition.OnComplete(() =>
+        {
+            SetSymbolAlpha(visibleSymbols, 1f);
+            activeTweens.Remove(transition);
+            freeSpinStartSymbolTween = null;
+            onComplete?.Invoke();
+        });
+
+        freeSpinStartSymbolTween = transition;
+        activeTweens.Add(transition);
+        return true;
+    }
+
+    internal void CancelFreeSpinStartSymbolTransition()
+    {
+        Tween transition = freeSpinStartSymbolTween;
+        freeSpinStartSymbolTween = null;
+        transition?.Kill();
+        if (transition != null) activeTweens.Remove(transition);
+        SetSymbolAlpha(GetVisibleSymbolImages(), 1f);
+    }
+
+    private List<Image> GetVisibleSymbolImages()
+    {
+        return Tempimages
+            .Where(group => group?.slotImages != null)
+            .SelectMany(group => group.slotImages)
+            .Where(symbol => symbol != null)
+            .Distinct()
+            .ToList();
+    }
+
+    private static void SetSymbolAlpha(IEnumerable<Image> symbols, float alpha)
+    {
+        float safeAlpha = Mathf.Clamp01(alpha);
+        foreach (Image symbol in symbols)
+        {
+            if (symbol == null) continue;
+            Color color = symbol.color;
+            color.a = safeAlpha;
+            symbol.color = color;
+        }
+    }
+
     internal void EndFreeSpinWinPresentation(bool resetDisplay)
     {
         freeSpinWinPresentationActive = false;
@@ -1654,7 +1738,12 @@ public class SlotBehaviour : MonoBehaviour
         }
         else
         {
-            yield return PlayNormalWinPresentation(result, !autoplayRoundInProgress);
+            bool triggersFreeGames = result?.freeSpinData != null &&
+                result.freeSpinData.isTriggered &&
+                result.freeSpinData.spinsAwarded > 0 &&
+                !result.isFreeSpinResult;
+            bool showIndividualWinLines = !autoplayRoundInProgress && !triggersFreeGames;
+            yield return PlayNormalWinPresentation(result, showIndividualWinLines);
         }
 
         resultPresentationInProgress = false;
@@ -2337,6 +2426,7 @@ public class SlotBehaviour : MonoBehaviour
     private void KillAllTweens()
     {
         KillReelTweens(true);
+        CancelFreeSpinStartSymbolTransition();
 
         foreach (Tween tween in activeTweens)
         {

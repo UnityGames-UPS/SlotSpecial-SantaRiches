@@ -58,9 +58,17 @@ public class UIManager : MonoBehaviour
     [SerializeField, Min(0f)] private float freeSpinTotalWinCountDuration = 1.5f;
 
     [Header("Free Spin Offer Transition")]
-    [SerializeField, Min(0f)] private float freeSpinFadeToBlackDuration = 0.35f;
-    [SerializeField, Min(0f)] private float freeSpinFadeFromBlackDuration = 0.45f;
+    [SerializeField] private CanvasGroup freeSpinTransitionOverlay;
+    [SerializeField] private Transform freeSpinScaleTarget;
+    [SerializeField, Min(0f)] private float freeSpinFadeToBlackDuration = 1f;
+    [SerializeField, Min(1f)] private float freeSpinBlackHoldDuration = 1f;
+    [SerializeField, Min(0f)] private float freeSpinFadeFromBlackDuration = 1f;
     [SerializeField, Min(0f)] private float freeSpinOfferScaleDuration = 0.5f;
+
+    [Header("Free Spin Completion Transition")]
+    [SerializeField] private CanvasGroup freeSpinWinCanvasGroup;
+    [SerializeField, Min(0f)] private float freeSpinWinFadeOutDuration = 1f;
+    [SerializeField, Min(0f)] private float freeSpinGameplayRevealDuration = 0.25f;
 
     [Header("Autoplay Panel")]
     [SerializeField] private GameObject autoplayPanel;
@@ -124,10 +132,10 @@ public class UIManager : MonoBehaviour
     private Tween menuTween;
     private Tween soundTween;
     private Tween freeSpinOfferTransitionTween;
+    private Tween freeSpinCollectTransitionTween;
     private Tween freeSpinTotalWinTween;
-    private CanvasGroup freeSpinTransitionOverlay;
-    private Vector3 freeSpinPanelOriginalScale = Vector3.one;
-    private bool freeSpinPanelScaleCached;
+    private Vector3 freeSpinScaleTargetOriginalScale = Vector3.one;
+    private bool freeSpinScaleTargetScaleCached;
     private Vector2 autoplayOpenPosition;
     private bool autoplayPositionCached;
     private bool pointerHeld;
@@ -250,30 +258,74 @@ public class UIManager : MonoBehaviour
         RefreshControls();
     }
 
-    internal void ShowFreeSpinOffer(int totalSpins)
+    internal void ShowFreeSpinOffer(int totalSpins, int remainingSpins)
     {
+        // The black-screen offer transition belongs only to the server-confirmed
+        // Free Games trigger state set by GameManager. Ignore every other caller.
+        if (gameManager == null || !gameManager.IsFreeSpinAwaitingStart)
+        {
+            return;
+        }
+
         CancelFreeSpinTotalWinCount();
         StopFreeSpinStarFountain();
         if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
         if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
         SetVisible(bottomFreeSpinStartButton, true);
         SetVisible(takeFreeSpinButton, false);
-        UpdateFreeSpinCounter(totalSpins, totalSpins);
+        UpdateFreeSpinCounter(totalSpins, remainingSpins);
         PlayFreeSpinOfferTransition();
         RefreshControls();
     }
 
-    internal void BeginFreeSpinPresentation(int totalSpins, int remainingSpins)
+    internal void BeginFreeSpinPresentation(
+        int totalSpins,
+        int remainingSpins,
+        Action onPanelHidden)
     {
         CancelFreeSpinTotalWinCount();
         CancelFreeSpinOfferTransition();
         StopFreeSpinStarFountain();
-        if (freeSpinPanel != null) freeSpinPanel.SetActive(false);
-        if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(true);
+        if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
         if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
         SetVisible(bottomFreeSpinStartButton, false);
         SetVisible(takeFreeSpinButton, false);
         UpdateFreeSpinCounter(totalSpins, remainingSpins);
+
+        Action finishPanelExit = () =>
+        {
+            freeSpinOfferTransitionTween = null;
+            if (freeSpinPanel != null)
+            {
+                freeSpinPanel.SetActive(false);
+                freeSpinPanel.transform.localScale = Vector3.one;
+            }
+
+            if (freeSpinScaleTarget != null)
+            {
+                freeSpinScaleTarget.localScale = freeSpinScaleTargetOriginalScale;
+            }
+
+            if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(true);
+            RefreshControls();
+            onPanelHidden?.Invoke();
+        };
+
+        if (freeSpinPanel == null || !freeSpinPanel.activeSelf ||
+            freeSpinScaleTarget == null || freeSpinOfferScaleDuration <= 0f)
+        {
+            finishPanelExit();
+            return;
+        }
+
+        CacheFreeSpinScaleTarget();
+        freeSpinPanel.transform.localScale = Vector3.one;
+        freeSpinScaleTarget.localScale = freeSpinScaleTargetOriginalScale;
+        freeSpinOfferTransitionTween = freeSpinScaleTarget
+            .DOScale(Vector3.zero, freeSpinOfferScaleDuration)
+            .SetEase(Ease.InCubic)
+            .SetUpdate(true)
+            .OnComplete(() => finishPanelExit());
         RefreshControls();
     }
 
@@ -342,15 +394,120 @@ public class UIManager : MonoBehaviour
 
     internal void ShowFreeSpinCompletion(string formattedTotalWin)
     {
+        CancelFreeSpinCollectTransition();
         CancelFreeSpinOfferTransition();
         StopFreeSpinStarFountain();
         if (freeSpinPanel != null) freeSpinPanel.SetActive(false);
         if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
-        if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(true);
+        if (freeSpinWinPanel != null)
+        {
+            freeSpinWinPanel.SetActive(true);
+            freeSpinWinCanvasGroup = EnsureCanvasGroup(freeSpinWinPanel, freeSpinWinCanvasGroup);
+        }
+        if (freeSpinWinCanvasGroup != null) freeSpinWinCanvasGroup.alpha = 1f;
+        SetCanvasInteraction(freeSpinWinCanvasGroup, true);
         StartFreeSpinTotalWinCount(formattedTotalWin);
+        freeSpinStarFountain?.PlayStarBurst();
         SetVisible(bottomFreeSpinStartButton, false);
         SetVisible(takeFreeSpinButton, true);
         RefreshControls();
+    }
+
+    internal bool PlayFreeSpinCollectTransition(Action onBlackout)
+    {
+        if (freeSpinWinPanel == null || !freeSpinWinPanel.activeSelf)
+        {
+            return false;
+        }
+
+        CancelFreeSpinCollectTransition();
+        if (freeSpinTotalWinTween != null)
+        {
+            freeSpinTotalWinTween.Complete();
+            freeSpinTotalWinTween = null;
+        }
+
+        StopFreeSpinStarFountain();
+        freeSpinWinCanvasGroup = EnsureCanvasGroup(freeSpinWinPanel, freeSpinWinCanvasGroup);
+        if (freeSpinWinCanvasGroup != null) freeSpinWinCanvasGroup.alpha = 1f;
+        SetCanvasInteraction(freeSpinWinCanvasGroup, false);
+        SetVisible(takeFreeSpinButton, false);
+
+        EnsureFreeSpinTransitionOverlay();
+        CanvasGroup transitionOverlay = freeSpinTransitionOverlay;
+        if (transitionOverlay != null)
+        {
+            transitionOverlay.gameObject.SetActive(true);
+            transitionOverlay.transform.SetAsLastSibling();
+            transitionOverlay.alpha = 0f;
+            transitionOverlay.interactable = true;
+            transitionOverlay.blocksRaycasts = true;
+        }
+
+        Sequence transition = DOTween.Sequence().SetUpdate(true);
+        if (freeSpinWinCanvasGroup != null)
+        {
+            transition.Append(
+                freeSpinWinCanvasGroup
+                    .DOFade(0f, freeSpinWinFadeOutDuration)
+                    .SetEase(Ease.InOutSine));
+        }
+
+        transition.AppendCallback(() =>
+        {
+            if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
+            if (freeSpinWinCanvasGroup != null) freeSpinWinCanvasGroup.alpha = 1f;
+            if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(true);
+            RefreshControls();
+        });
+
+        if (freeSpinGameplayRevealDuration > 0f)
+        {
+            transition.AppendInterval(freeSpinGameplayRevealDuration);
+        }
+
+        if (transitionOverlay != null)
+        {
+            transition.AppendCallback(() =>
+            {
+                transitionOverlay.transform.SetAsLastSibling();
+            });
+            transition.Append(
+                transitionOverlay
+                    .DOFade(1f, freeSpinFadeToBlackDuration)
+                    .SetEase(Ease.Linear));
+            transition.AppendInterval(Mathf.Max(1f, freeSpinBlackHoldDuration));
+        }
+
+        transition.AppendCallback(() =>
+        {
+            onBlackout?.Invoke();
+            if (freeSpinPanel != null) freeSpinPanel.SetActive(false);
+            if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
+            if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
+            if (transitionOverlay != null) transitionOverlay.transform.SetAsLastSibling();
+        });
+
+        if (transitionOverlay != null)
+        {
+            transition.Append(
+                transitionOverlay
+                    .DOFade(0f, freeSpinFadeFromBlackDuration)
+                    .SetEase(Ease.Linear));
+        }
+
+        transition.OnComplete(() =>
+        {
+            freeSpinCollectTransitionTween = null;
+            if (freeSpinWinCanvasGroup != null) freeSpinWinCanvasGroup.alpha = 1f;
+            SetCanvasInteraction(freeSpinWinCanvasGroup, false);
+            HideFreeSpinTransitionOverlay();
+            StopFreeSpinStarFountain();
+            RefreshControls();
+        });
+        freeSpinCollectTransitionTween = transition;
+        RefreshControls();
+        return true;
     }
 
     private void StartFreeSpinTotalWinCount(string formattedTotalWin)
@@ -427,11 +584,14 @@ public class UIManager : MonoBehaviour
     internal void ResetFreeSpinPresentation()
     {
         CancelFreeSpinTotalWinCount();
+        CancelFreeSpinCollectTransition();
         CancelFreeSpinOfferTransition();
         StopFreeSpinStarFountain();
         if (freeSpinPanel != null) freeSpinPanel.SetActive(false);
         if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
         if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
+        if (freeSpinWinCanvasGroup != null) freeSpinWinCanvasGroup.alpha = 1f;
+        SetCanvasInteraction(freeSpinWinCanvasGroup, false);
         SetVisible(bottomFreeSpinStartButton, false);
         SetVisible(takeFreeSpinButton, false);
         RefreshControls();
@@ -574,6 +734,14 @@ public class UIManager : MonoBehaviour
         freeSpinPanel = freeSpinPanel != null ? freeSpinPanel : FindSceneObject("FreeSpinPanel");
         freeSpinCountPanel = freeSpinCountPanel != null ? freeSpinCountPanel : FindSceneObject("FreeSpinCountPanel");
         freeSpinWinPanel = freeSpinWinPanel != null ? freeSpinWinPanel : FindSceneObject("FreeSpinWinPanel");
+        freeSpinTransitionOverlay = freeSpinTransitionOverlay != null
+            ? freeSpinTransitionOverlay
+            : FindNamedComponent<CanvasGroup>("BlackScreen");
+        freeSpinScaleTarget = freeSpinScaleTarget != null || freeSpinPanel == null
+            ? freeSpinScaleTarget
+            : freeSpinPanel
+                .GetComponentsInChildren<Transform>(true)
+                .FirstOrDefault(candidate => candidate.name == "CanScale");
         freeSpinPanelStartButton = ResolveChildButton(freeSpinPanelStartButton, freeSpinPanel, "Start");
         bottomFreeSpinStartButton = bottomFreeSpinStartButton != null
             ? bottomFreeSpinStartButton
@@ -639,6 +807,7 @@ public class UIManager : MonoBehaviour
         autoplayCanvasGroup = EnsureCanvasGroup(autoplayPanel, autoplayCanvasGroup);
         menuCanvasGroup = EnsureCanvasGroup(menuPanel, menuCanvasGroup);
         soundCanvasGroup = EnsureCanvasGroup(soundPanel, soundCanvasGroup);
+        freeSpinWinCanvasGroup = EnsureCanvasGroup(freeSpinWinPanel, freeSpinWinCanvasGroup);
 
         if (autoplayPanel != null)
         {
@@ -655,17 +824,24 @@ public class UIManager : MonoBehaviour
         soundOpen = soundPanel != null && soundPanel.activeSelf;
         if (freeSpinPanel != null)
         {
-            freeSpinPanelOriginalScale = freeSpinPanel.transform.localScale;
-            freeSpinPanelScaleCached = true;
+            freeSpinPanel.transform.localScale = Vector3.one;
+            CacheFreeSpinScaleTarget();
+            if (freeSpinScaleTarget != null)
+            {
+                freeSpinScaleTarget.localScale = freeSpinScaleTargetOriginalScale;
+            }
             freeSpinPanel.SetActive(false);
         }
         if (freeSpinCountPanel != null) freeSpinCountPanel.SetActive(false);
         if (freeSpinWinPanel != null) freeSpinWinPanel.SetActive(false);
+        if (freeSpinWinCanvasGroup != null) freeSpinWinCanvasGroup.alpha = 1f;
+        SetCanvasInteraction(freeSpinWinCanvasGroup, false);
         if (freeSpinTotalWinText != null)
         {
             freeSpinTotalWinText.text = FormatSpriteAmount(freeSpinTotalWinText, 0d, 0);
         }
         StopFreeSpinStarFountain();
+        HideFreeSpinTransitionOverlay();
         SetVisible(bottomFreeSpinStartButton, false);
         SetVisible(takeFreeSpinButton, false);
         ApplyMenuIcons();
@@ -680,15 +856,23 @@ public class UIManager : MonoBehaviour
             return;
         }
 
-        CacheFreeSpinPanelScale();
+        CacheFreeSpinScaleTarget();
+        freeSpinPanel.transform.localScale = Vector3.one;
         EnsureFreeSpinTransitionOverlay();
         if (freeSpinTransitionOverlay == null)
         {
             freeSpinPanel.SetActive(true);
-            freeSpinPanel.transform.localScale = Vector3.zero;
             freeSpinStarFountain?.PlayStarBurst();
-            freeSpinOfferTransitionTween = freeSpinPanel.transform
-                .DOScale(freeSpinPanelOriginalScale, freeSpinOfferScaleDuration)
+
+            if (freeSpinScaleTarget == null)
+            {
+                RefreshControls();
+                return;
+            }
+
+            freeSpinScaleTarget.localScale = Vector3.zero;
+            freeSpinOfferTransitionTween = freeSpinScaleTarget
+                .DOScale(freeSpinScaleTargetOriginalScale, freeSpinOfferScaleDuration)
                 .SetEase(Ease.OutBack)
                 .SetUpdate(true)
                 .OnComplete(() => freeSpinOfferTransitionTween = null);
@@ -696,7 +880,7 @@ public class UIManager : MonoBehaviour
         }
 
         freeSpinPanel.SetActive(false);
-        freeSpinPanel.transform.localScale = Vector3.zero;
+        if (freeSpinScaleTarget != null) freeSpinScaleTarget.localScale = Vector3.zero;
 
         freeSpinTransitionOverlay.gameObject.SetActive(true);
         freeSpinTransitionOverlay.transform.SetAsLastSibling();
@@ -709,12 +893,14 @@ public class UIManager : MonoBehaviour
             freeSpinTransitionOverlay
                 .DOFade(1f, freeSpinFadeToBlackDuration)
                 .SetEase(Ease.Linear));
+        transition.AppendInterval(Mathf.Max(1f, freeSpinBlackHoldDuration));
         transition.AppendCallback(() =>
         {
             if (freeSpinPanel == null) return;
 
             freeSpinPanel.SetActive(true);
-            freeSpinPanel.transform.localScale = Vector3.zero;
+            freeSpinPanel.transform.localScale = Vector3.one;
+            if (freeSpinScaleTarget != null) freeSpinScaleTarget.localScale = Vector3.zero;
             freeSpinTransitionOverlay.transform.SetAsLastSibling();
             freeSpinStarFountain?.PlayStarBurst();
         });
@@ -722,29 +908,36 @@ public class UIManager : MonoBehaviour
             freeSpinTransitionOverlay
                 .DOFade(0f, freeSpinFadeFromBlackDuration)
                 .SetEase(Ease.Linear));
-        transition.Join(
-            freeSpinPanel.transform
-                .DOScale(freeSpinPanelOriginalScale, freeSpinOfferScaleDuration)
-                .SetEase(Ease.OutBack));
+        if (freeSpinScaleTarget != null)
+        {
+            transition.Join(
+                freeSpinScaleTarget
+                    .DOScale(freeSpinScaleTargetOriginalScale, freeSpinOfferScaleDuration)
+                    .SetEase(Ease.OutBack));
+        }
         transition.OnComplete(() =>
         {
             freeSpinOfferTransitionTween = null;
-            freeSpinPanel.transform.localScale = freeSpinPanelOriginalScale;
+            if (freeSpinPanel != null) freeSpinPanel.transform.localScale = Vector3.one;
+            if (freeSpinScaleTarget != null)
+            {
+                freeSpinScaleTarget.localScale = freeSpinScaleTargetOriginalScale;
+            }
             HideFreeSpinTransitionOverlay();
             RefreshControls();
         });
         freeSpinOfferTransitionTween = transition;
     }
 
-    private void CacheFreeSpinPanelScale()
+    private void CacheFreeSpinScaleTarget()
     {
-        if (freeSpinPanelScaleCached || freeSpinPanel == null)
+        if (freeSpinScaleTargetScaleCached || freeSpinScaleTarget == null)
         {
             return;
         }
 
-        freeSpinPanelOriginalScale = freeSpinPanel.transform.localScale;
-        freeSpinPanelScaleCached = true;
+        freeSpinScaleTargetOriginalScale = freeSpinScaleTarget.localScale;
+        freeSpinScaleTargetScaleCached = true;
     }
 
     private void EnsureFreeSpinTransitionOverlay()
@@ -786,11 +979,30 @@ public class UIManager : MonoBehaviour
         freeSpinOfferTransitionTween?.Kill();
         freeSpinOfferTransitionTween = null;
 
-        if (freeSpinPanel != null && freeSpinPanelScaleCached)
+        if (freeSpinPanel != null)
         {
-            freeSpinPanel.transform.localScale = freeSpinPanelOriginalScale;
+            freeSpinPanel.transform.localScale = Vector3.one;
         }
 
+        if (freeSpinScaleTarget != null && freeSpinScaleTargetScaleCached)
+        {
+            freeSpinScaleTarget.localScale = freeSpinScaleTargetOriginalScale;
+        }
+
+        HideFreeSpinTransitionOverlay();
+    }
+
+    private void CancelFreeSpinCollectTransition()
+    {
+        freeSpinCollectTransitionTween?.Kill();
+        freeSpinCollectTransitionTween = null;
+
+        if (freeSpinWinCanvasGroup != null)
+        {
+            freeSpinWinCanvasGroup.alpha = 1f;
+        }
+
+        SetCanvasInteraction(freeSpinWinCanvasGroup, false);
         HideFreeSpinTransitionOverlay();
     }
 
@@ -1390,6 +1602,7 @@ public class UIManager : MonoBehaviour
     private void KillPanelTweens()
     {
         CancelFreeSpinTotalWinCount();
+        CancelFreeSpinCollectTransition();
         CancelFreeSpinOfferTransition();
         autoplayTween?.Kill();
         menuTween?.Kill();
