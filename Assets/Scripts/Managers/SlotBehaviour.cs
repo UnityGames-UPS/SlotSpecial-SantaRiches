@@ -1918,7 +1918,11 @@ public class SlotBehaviour : MonoBehaviour
         reelWinAmountTween = null;
         HideReelWinTextObjects();
 
-        target.text = FormatReelWinAmount(target, Math.Max(0d, amount), currentSpinReelWinDecimalPlaces);
+        double safeAmount = Math.Max(0d, amount);
+        int lineDecimalPlaces = Math.Max(
+            currentSpinReelWinDecimalPlaces,
+            GetDecimalPlaces(safeAmount));
+        target.text = FormatReelWinAmount(target, safeAmount, lineDecimalPlaces);
         reelWinAmountRoot.SetActive(true);
         target.gameObject.SetActive(true);
 
