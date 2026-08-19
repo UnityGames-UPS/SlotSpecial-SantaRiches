@@ -1,0 +1,936 @@
+fileFormatVersion: 2
+guid: 2247693e335da5d4ebfcdd9f0b404d3b
+TextureImporter:
+  internalIDToNameTable:
+  - first:
+      213: 763574692452538090
+    second: Paylines_0
+  - first:
+      213: 5938462787010524366
+    second: Paylines_1
+  - first:
+      213: -932837576209473703
+    second: Paylines_2
+  - first:
+      213: 5544883313388336886
+    second: Paylines_3
+  - first:
+      213: -1676553519554483581
+    second: Paylines_4
+  - first:
+      213: -8810936544350988239
+    second: Paylines_5
+  - first:
+      213: 4318345557478906332
+    second: Paylines_6
+  - first:
+      213: 7901616859081479739
+    second: Paylines_7
+  - first:
+      213: 2303828553452162907
+    second: Paylines_8
+  - first:
+      213: -2689473286393116174
+    second: Paylines_9
+  - first:
+      213: -6860626318345087356
+    second: Paylines_10
+  - first:
+      213: 7025585325284201670
+    second: Paylines_11
+  - first:
+      213: -9218633920720521667
+    second: Paylines_12
+  - first:
+      213: 3572412359273691408
+    second: Paylines_13
+  - first:
+      213: -7151428918552486955
+    second: Paylines_14
+  - first:
+      213: -506474317600726884
+    second: Paylines_15
+  - first:
+      213: 7457890933028606660
+    second: Paylines_16
+  - first:
+      213: -4737811855538882073
+    second: Paylines_17
+  - first:
+      213: -4145340405807906992
+    second: Paylines_18
+  - first:
+      213: 3787344423639665813
+    second: Paylines_19
+  - first:
+      213: -1245076795901679294
+    second: Paylines_20
+  - first:
+      213: -5063229707374478757
+    second: Paylines_21
+  - first:
+      213: -4921209235286955622
+    second: Paylines_22
+  - first:
+      213: -1669519785054994146
+    second: Paylines_23
+  - first:
+      213: -6487646605772654216
+    second: Paylines_24
+  - first:
+      213: -557159104938860932
+    second: Paylines_25
+  - first:
+      213: -1002406042398127652
+    second: Paylines_26
+  - first:
+      213: -2461405931137397774
+    second: Paylines_27
+  - first:
+      213: -7669155510019563758
+    second: Paylines_28
+  - first:
+      213: -6860063536441831271
+    second: Paylines_29
+  externalObjects: {}
+  serializedVersion: 13
+  mipmaps:
+    mipMapMode: 0
+    enableMipMap: 0
+    sRGBTexture: 1
+    linearTexture: 0
+    fadeOut: 0
+    borderMipMap: 0
+    mipMapsPreserveCoverage: 0
+    alphaTestReferenceValue: 0.5
+    mipMapFadeDistanceStart: 1
+    mipMapFadeDistanceEnd: 3
+  bumpmap:
+    convertToNormalMap: 0
+    externalNormalMap: 0
+    heightScale: 0.25
+    normalMapFilter: 0
+    flipGreenChannel: 0
+  isReadable: 0
+  streamingMipmaps: 0
+  streamingMipmapsPriority: 0
+  vTOnly: 0
+  ignoreMipmapLimit: 0
+  grayScaleToAlpha: 0
+  generateCubemap: 6
+  cubemapConvolution: 0
+  seamlessCubemap: 0
+  textureFormat: 1
+  maxTextureSize: 2048
+  textureSettings:
+    serializedVersion: 2
+    filterMode: 1
+    aniso: 1
+    mipBias: 0
+    wrapU: 1
+    wrapV: 1
+    wrapW: 1
+  nPOTScale: 0
+  lightmap: 0
+  compressionQuality: 50
+  spriteMode: 1
+  spriteExtrude: 1
+  spriteMeshType: 1
+  alignment: 0
+  spritePivot: {x: 0.5, y: 0.5}
+  spritePixelsToUnits: 100
+  spriteBorder: {x: 0, y: 0, z: 0, w: 0}
+  spriteGenerateFallbackPhysicsShape: 1
+  alphaUsage: 1
+  alphaIsTransparency: 1
+  spriteTessellationDetail: -1
+  textureType: 8
+  textureShape: 1
+  singleChannelComponent: 0
+  flipbookRows: 1
+  flipbookColumns: 1
+  maxTextureSizeSet: 0
+  compressionQualitySet: 0
+  textureFormatSet: 0
+  ignorePngGamma: 0
+  applyGammaDecoding: 0
+  swizzle: 50462976
+  cookieLightType: 0
+  platformSettings:
+  - serializedVersion: 4
+    buildTarget: DefaultTexturePlatform
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 0
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Standalone
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Android
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: WebGL
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: WindowsStoreApps
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  spriteSheet:
+    serializedVersion: 2
+    sprites:
+    - serializedVersion: 2
+      name: Paylines_0
+      rect:
+        serializedVersion: 2
+        x: 134
+        y: 3761
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: ae69c1f1323c89a00800000000000000
+      internalID: 763574692452538090
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_1
+      rect:
+        serializedVersion: 2
+        x: 1115
+        y: 3761
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: ec473a30178a96250800000000000000
+      internalID: 5938462787010524366
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_2
+      rect:
+        serializedVersion: 2
+        x: 2096
+        y: 3761
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 95fd5e4ba25ed03f0800000000000000
+      internalID: -932837576209473703
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_3
+      rect:
+        serializedVersion: 2
+        x: 3077
+        y: 3761
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 6f6b087def163fc40800000000000000
+      internalID: 5544883313388336886
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_4
+      rect:
+        serializedVersion: 2
+        x: 134
+        y: 3246
+        width: 606
+        height: 367
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 38a260ce47fabb8e0800000000000000
+      internalID: -1676553519554483581
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_5
+      rect:
+        serializedVersion: 2
+        x: 1115
+        y: 3246
+        width: 606
+        height: 367
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 138937f25e349b580800000000000000
+      internalID: -8810936544350988239
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_6
+      rect:
+        serializedVersion: 2
+        x: 2096
+        y: 3246
+        width: 605
+        height: 367
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: cd99aeaa768ddeb30800000000000000
+      internalID: 4318345557478906332
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_7
+      rect:
+        serializedVersion: 2
+        x: 3077
+        y: 3246
+        width: 605
+        height: 367
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: b361ac43bae28ad60800000000000000
+      internalID: 7901616859081479739
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_8
+      rect:
+        serializedVersion: 2
+        x: 134
+        y: 2732
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: b5f0be7fcd7d8ff10800000000000000
+      internalID: 2303828553452162907
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_9
+      rect:
+        serializedVersion: 2
+        x: 1115
+        y: 2732
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 2f9c2a3ab421daad0800000000000000
+      internalID: -2689473286393116174
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_10
+      rect:
+        serializedVersion: 2
+        x: 2096
+        y: 2732
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 486585e66b82ac0a0800000000000000
+      internalID: -6860626318345087356
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_11
+      rect:
+        serializedVersion: 2
+        x: 3077
+        y: 2732
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 6c413c451a4ef7160800000000000000
+      internalID: 7025585325284201670
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_12
+      rect:
+        serializedVersion: 2
+        x: 134
+        y: 2217
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: d363611aa45d01080800000000000000
+      internalID: -9218633920720521667
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_13
+      rect:
+        serializedVersion: 2
+        x: 1115
+        y: 2217
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 01939b10d12c39130800000000000000
+      internalID: 3572412359273691408
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_14
+      rect:
+        serializedVersion: 2
+        x: 2096
+        y: 2217
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 5db1939d94501cc90800000000000000
+      internalID: -7151428918552486955
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_15
+      rect:
+        serializedVersion: 2
+        x: 3077
+        y: 2217
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: c90ec83aa44a8f8f0800000000000000
+      internalID: -506474317600726884
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_16
+      rect:
+        serializedVersion: 2
+        x: 134
+        y: 1702
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 4c2d6cc3a40cf7760800000000000000
+      internalID: 7457890933028606660
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_17
+      rect:
+        serializedVersion: 2
+        x: 1115
+        y: 1702
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 7e978f92839ef3eb0800000000000000
+      internalID: -4737811855538882073
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_18
+      rect:
+        serializedVersion: 2
+        x: 2096
+        y: 1702
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 05ffeb62ddac876c0800000000000000
+      internalID: -4145340405807906992
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_19
+      rect:
+        serializedVersion: 2
+        x: 3077
+        y: 1702
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 59c4915efa95f8430800000000000000
+      internalID: 3787344423639665813
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_20
+      rect:
+        serializedVersion: 2
+        x: 134
+        y: 1187
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 249e236304998bee0800000000000000
+      internalID: -1245076795901679294
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_21
+      rect:
+        serializedVersion: 2
+        x: 1115
+        y: 1187
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: b5a3db3486bcbb9b0800000000000000
+      internalID: -5063229707374478757
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_22
+      rect:
+        serializedVersion: 2
+        x: 2096
+        y: 1187
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: a996951364a54bbb0800000000000000
+      internalID: -4921209235286955622
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_23
+      rect:
+        serializedVersion: 2
+        x: 3077
+        y: 1187
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: e118f4ad99ca4d8e0800000000000000
+      internalID: -1669519785054994146
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_24
+      rect:
+        serializedVersion: 2
+        x: 134
+        y: 672
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 879f6aaf8cf37f5a0800000000000000
+      internalID: -6487646605772654216
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_25
+      rect:
+        serializedVersion: 2
+        x: 1115
+        y: 672
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: c7e9ebafeb29448f0800000000000000
+      internalID: -557159104938860932
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_26
+      rect:
+        serializedVersion: 2
+        x: 2096
+        y: 672
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: cd98722f30db612f0800000000000000
+      internalID: -1002406042398127652
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_27
+      rect:
+        serializedVersion: 2
+        x: 3077
+        y: 672
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 2fb0482c85457ddd0800000000000000
+      internalID: -2461405931137397774
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_28
+      rect:
+        serializedVersion: 2
+        x: 1115
+        y: 157
+        width: 606
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 21fdd0252bfa19590800000000000000
+      internalID: -7669155510019563758
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Paylines_29
+      rect:
+        serializedVersion: 2
+        x: 2096
+        y: 157
+        width: 605
+        height: 366
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 99056cd4f882cc0a0800000000000000
+      internalID: -6860063536441831271
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    outline: []
+    customData: 
+    physicsShape: []
+    bones: []
+    spriteID: 5e97eb03825dee720800000000000000
+    internalID: 0
+    vertices: []
+    indices: 
+    edges: []
+    weights: []
+    secondaryTextures: []
+    spriteCustomMetadata:
+      entries: []
+    nameFileIdTable:
+      Paylines_0: 763574692452538090
+      Paylines_1: 5938462787010524366
+      Paylines_10: -6860626318345087356
+      Paylines_11: 7025585325284201670
+      Paylines_12: -9218633920720521667
+      Paylines_13: 3572412359273691408
+      Paylines_14: -7151428918552486955
+      Paylines_15: -506474317600726884
+      Paylines_16: 7457890933028606660
+      Paylines_17: -4737811855538882073
+      Paylines_18: -4145340405807906992
+      Paylines_19: 3787344423639665813
+      Paylines_2: -932837576209473703
+      Paylines_20: -1245076795901679294
+      Paylines_21: -5063229707374478757
+      Paylines_22: -4921209235286955622
+      Paylines_23: -1669519785054994146
+      Paylines_24: -6487646605772654216
+      Paylines_25: -557159104938860932
+      Paylines_26: -1002406042398127652
+      Paylines_27: -2461405931137397774
+      Paylines_28: -7669155510019563758
+      Paylines_29: -6860063536441831271
+      Paylines_3: 5544883313388336886
+      Paylines_4: -1676553519554483581
+      Paylines_5: -8810936544350988239
+      Paylines_6: 4318345557478906332
+      Paylines_7: 7901616859081479739
+      Paylines_8: 2303828553452162907
+      Paylines_9: -2689473286393116174
+  mipmapLimitGroupName: 
+  pSDRemoveMatte: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
