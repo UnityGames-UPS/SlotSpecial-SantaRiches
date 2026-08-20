@@ -136,9 +136,12 @@ public class OrientationChange : MonoBehaviour
             currentMode = OrientationMode.DesktopPortrait;
         }
 
-        Quaternion targetRotation = isLandscape
-            ? Quaternion.identity
-            : Quaternion.Euler(0, 0, -90);
+        // Mobile portrait has its own upright layout managed by OCController.
+        // Only desktop portrait keeps the rotated landscape presentation.
+        bool usesRotatedLandscapeLayout = currentMode == OrientationMode.DesktopPortrait;
+        Quaternion targetRotation = usesRotatedLandscapeLayout
+            ? Quaternion.Euler(0, 0, -90)
+            : Quaternion.identity;
         if (UIWrapper != null)
         {
             if (rotationTween != null && rotationTween.IsActive()) rotationTween.Kill();
@@ -147,22 +150,14 @@ public class OrientationChange : MonoBehaviour
 
         if (CanvasScaler != null)
         {
-            float refW = ReferenceAspect.x;
-            float refH = ReferenceAspect.y;
-            float widthScale = (float)width / refW;
-            float heightScale = (float)height / refH;
-
-            float targetScale;
-            if (isLandscape)
-            {
-                targetScale = Mathf.Min(widthScale, heightScale);
-            }
-            else
-            {
-                float portraitWidthScale = (float)height / refW;
-                float portraitHeightScale = (float)width / refH;
-                targetScale = Mathf.Min(portraitWidthScale, portraitHeightScale);
-            }
+            bool usesUprightPortraitLayout = currentMode == OrientationMode.MobilePortrait;
+            float refW = usesUprightPortraitLayout ? ReferenceAspect.y : ReferenceAspect.x;
+            float refH = usesUprightPortraitLayout ? ReferenceAspect.x : ReferenceAspect.y;
+            float effectiveWidth = usesRotatedLandscapeLayout ? height : width;
+            float effectiveHeight = usesRotatedLandscapeLayout ? width : height;
+            float widthScale = effectiveWidth / refW;
+            float heightScale = effectiveHeight / refH;
+            float targetScale = Mathf.Min(widthScale, heightScale);
 
             float targetMatch;
             if (Mathf.Abs(heightScale - widthScale) < 0.0001f)

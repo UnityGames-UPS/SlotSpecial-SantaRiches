@@ -77,6 +77,12 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField] private TMP_Text goodLuckText;
     [SerializeField] private TMP_Text WinLinesCount_Text;
 
+    [Header("Portrait Miscellaneous UI")]
+    [SerializeField] private TMP_Text portraitTotalWinText;
+    [SerializeField] private TMP_Text portraitWinLabelText;
+    [SerializeField] private TMP_Text portraitGoodLuckText;
+    [SerializeField] private TMP_Text portraitWinLinesCountText;
+
     [Header("Reel Win Amounts")]
     [SerializeField] private GameObject reelWinAmountRoot;
     [FormerlySerializedAs("reelTotalWinText")]
@@ -278,13 +284,27 @@ public class SlotBehaviour : MonoBehaviour
         winLabelText = winLabelText != null ? winLabelText : FindNamedText("WinText");
         goodLuckText = goodLuckText != null ? goodLuckText : FindNamedText("GoodLuckText");
         WinLinesCount_Text = WinLinesCount_Text != null ? WinLinesCount_Text : FindNamedText("WinLinesCount");
+
+        Transform portraitUiRoot = FindSceneTransform("PortraitUI");
+        portraitTotalWinText = portraitTotalWinText != null
+            ? portraitTotalWinText
+            : FindNamedComponentInChildren<TMP_Text>(portraitUiRoot, "WinAmount", "TotalWin");
+        portraitWinLabelText = portraitWinLabelText != null
+            ? portraitWinLabelText
+            : FindNamedComponentInChildren<TMP_Text>(portraitUiRoot, "WinText");
+        portraitGoodLuckText = portraitGoodLuckText != null
+            ? portraitGoodLuckText
+            : FindNamedComponentInChildren<TMP_Text>(portraitUiRoot, "GoodLuckText");
+        portraitWinLinesCountText = portraitWinLinesCountText != null
+            ? portraitWinLinesCountText
+            : FindNamedComponentInChildren<TMP_Text>(portraitUiRoot, "WinLinesCount");
         ResolveReelWinAmountReferences();
 
-        if (TotalWin_text != null)
+        ApplyToTexts(TotalWin_text, portraitTotalWinText, text =>
         {
-            TotalWin_text.enableAutoSizing = false;
-            TotalWin_text.transform.localScale = Vector3.one;
-        }
+            text.enableAutoSizing = false;
+            text.transform.localScale = Vector3.one;
+        });
 
         SetDeferredFreeSpinUiActive(false);
     }
@@ -855,6 +875,16 @@ public class SlotBehaviour : MonoBehaviour
 
         T component = sceneObject.GetComponent<T>();
         return component != null ? component : sceneObject.GetComponentInChildren<T>(true);
+    }
+
+    private static T FindNamedComponentInChildren<T>(
+        Transform root,
+        params string[] objectNames) where T : Component
+    {
+        if (root == null) return null;
+        return root
+            .GetComponentsInChildren<T>(true)
+            .FirstOrDefault(candidate => objectNames.Contains(candidate.name));
     }
 
     private static TMP_Text FindNamedText(params string[] objectNames)
@@ -2129,28 +2159,25 @@ public class SlotBehaviour : MonoBehaviour
     {
         winAmountTween?.Kill();
 
-        if (TotalWin_text == null)
+        if (TotalWin_text == null && portraitTotalWinText == null)
         {
             return;
         }
 
         if (!animate || amount <= 0d)
         {
-            TotalWin_text.text = FormatAmount(Math.Max(0d, amount), decimalPlaces);
+            SetWinAmountText(FormatAmount(Math.Max(0d, amount), decimalPlaces));
             return;
         }
 
         double displayed = Math.Max(0d, startAmount);
-        TotalWin_text.text = FormatAmount(displayed, decimalPlaces);
+        SetWinAmountText(FormatAmount(displayed, decimalPlaces));
         winAmountTween = DOTween.To(
                 () => displayed,
                 value =>
                 {
                     displayed = value;
-                    if (TotalWin_text != null)
-                    {
-                        TotalWin_text.text = FormatAmount(displayed, decimalPlaces);
-                    }
+                    SetWinAmountText(FormatAmount(displayed, decimalPlaces));
                 },
                 amount,
                 0.65f)
@@ -2163,24 +2190,14 @@ public class SlotBehaviour : MonoBehaviour
         winAmountTween?.Kill();
         winAmountTween = null;
 
-        if (TotalWin_text != null)
+        ApplyToTexts(TotalWin_text, portraitTotalWinText, text =>
         {
-            TotalWin_text.text = FormatAmount(0d, 0);
-            TotalWin_text.transform.localScale = Vector3.one;
-            TotalWin_text.gameObject.SetActive(false);
-        }
-
-        if (winLabelText != null)
-        {
-            winLabelText.transform.localScale = Vector3.one;
-            winLabelText.gameObject.SetActive(false);
-        }
-
-        if (goodLuckText != null)
-        {
-            goodLuckText.transform.localScale = Vector3.one;
-            goodLuckText.gameObject.SetActive(true);
-        }
+            text.text = FormatAmount(0d, 0);
+            text.transform.localScale = Vector3.one;
+            text.gameObject.SetActive(false);
+        });
+        SetTextState(winLabelText, portraitWinLabelText, false);
+        SetTextState(goodLuckText, portraitGoodLuckText, true);
     }
 
     private void ShowWinState(double amount, int decimalPlaces)
@@ -2189,23 +2206,14 @@ public class SlotBehaviour : MonoBehaviour
             ? Mathf.Clamp(decimalPlaces, 0, 28)
             : GetDecimalPlaces(amount);
 
-        if (goodLuckText != null)
+        SetTextState(goodLuckText, portraitGoodLuckText, false);
+        SetTextState(winLabelText, portraitWinLabelText, true);
+        ApplyToTexts(TotalWin_text, portraitTotalWinText, text =>
         {
-            goodLuckText.gameObject.SetActive(false);
-        }
-
-        if (winLabelText != null)
-        {
-            winLabelText.transform.localScale = Vector3.one;
-            winLabelText.gameObject.SetActive(true);
-        }
-
-        if (TotalWin_text != null)
-        {
-            TotalWin_text.text = FormatAmount(0d, safeDecimalPlaces);
-            TotalWin_text.transform.localScale = Vector3.one;
-            TotalWin_text.gameObject.SetActive(true);
-        }
+            text.text = FormatAmount(0d, safeDecimalPlaces);
+            text.transform.localScale = Vector3.one;
+            text.gameObject.SetActive(true);
+        });
 
         SetWinAmount(amount, true, safeDecimalPlaces);
     }
@@ -2231,19 +2239,9 @@ public class SlotBehaviour : MonoBehaviour
         double startAmount = 0d)
     {
         int safeDecimalPlaces = Mathf.Clamp(decimalPlaces, 0, 28);
-        if (goodLuckText != null) goodLuckText.gameObject.SetActive(false);
-
-        if (winLabelText != null)
-        {
-            winLabelText.transform.localScale = Vector3.one;
-            winLabelText.gameObject.SetActive(true);
-        }
-
-        if (TotalWin_text != null)
-        {
-            TotalWin_text.transform.localScale = Vector3.one;
-            TotalWin_text.gameObject.SetActive(true);
-        }
+        SetTextState(goodLuckText, portraitGoodLuckText, false);
+        SetTextState(winLabelText, portraitWinLabelText, true);
+        SetTextState(TotalWin_text, portraitTotalWinText, true);
 
         SetWinAmount(amount, animate, safeDecimalPlaces, startAmount);
     }
@@ -2254,10 +2252,29 @@ public class SlotBehaviour : MonoBehaviour
 
     private void UpdateWinLineCount(int count)
     {
-        if (WinLinesCount_Text != null)
+        string value = Math.Max(0, count).ToString();
+        ApplyToTexts(WinLinesCount_Text, portraitWinLinesCountText, text => text.text = value);
+    }
+
+    private void SetWinAmountText(string value)
+    {
+        ApplyToTexts(TotalWin_text, portraitTotalWinText, text => text.text = value);
+    }
+
+    private static void SetTextState(TMP_Text first, TMP_Text second, bool active)
+    {
+        ApplyToTexts(first, second, text =>
         {
-            WinLinesCount_Text.text = Math.Max(0, count).ToString();
-        }
+            text.transform.localScale = Vector3.one;
+            text.gameObject.SetActive(active);
+        });
+    }
+
+    private static void ApplyToTexts(TMP_Text first, TMP_Text second, Action<TMP_Text> action)
+    {
+        if (action == null) return;
+        if (first != null) action(first);
+        if (second != null && second != first) action(second);
     }
 
     private int GetRowCount()

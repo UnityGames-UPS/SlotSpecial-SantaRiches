@@ -40,12 +40,27 @@ public class OCController : MonoBehaviour
     [SerializeField] private Vector3 landscapeSlotPosition = Vector3.zero;
     [SerializeField] private Vector3 portraitSlotPosition = new Vector3(0f, -150f, 0f);
 
-    [Header("Logo Object Settings")]
-    [SerializeField] private RectTransform logoObject;
-    [SerializeField] private Vector3 landscapeLogoScale = Vector3.one;
-    [SerializeField] private Vector3 portraitLogoScale = new Vector3(1.27f, 1.27f, 1.27f);
-    [SerializeField] private Vector2 landscapeLogoPosition = new Vector2(0f, 355f);
-    [SerializeField] private Vector2 portraitLogoPosition = new Vector2(0f, 500f);
+    [Header("Slot Overlay Settings")]
+    [SerializeField] private RectTransform freeSpinPanel;
+    [SerializeField] private Vector2 portraitFreeSpinPanelPosition = Vector2.zero;
+    [SerializeField] private Vector2 portraitFreeSpinPanelSize = new Vector2(2000f, 3500f);
+    [SerializeField] private Vector3 portraitFreeSpinPanelScale = Vector3.one;
+    [SerializeField] private RectTransform freeSpinWinPanel;
+    [SerializeField] private Vector2 portraitFreeSpinWinPanelPosition = Vector2.zero;
+    [SerializeField] private Vector2 portraitFreeSpinWinPanelSize = new Vector2(1920f, 1080f);
+    [SerializeField] private Vector3 portraitFreeSpinWinPanelScale = Vector3.one;
+
+    [Header("Free Spin Win Background Settings")]
+    [SerializeField] private Image freeSpinWinBackgroundImage;
+    [SerializeField] private Sprite landscapeFreeSpinWinBackground;
+    [SerializeField] private Sprite portraitFreeSpinWinBackground;
+
+    [Header("Santa Object Settings")]
+    [SerializeField] private RectTransform santaObject;
+    [SerializeField] private RectTransform slotHolderObject;
+    [SerializeField] private Vector2 portraitSantaPosition = new Vector2(28f, 568f);
+    [SerializeField] private Vector2 portraitSantaSize = new Vector2(900f, 1000f);
+    [SerializeField] private Vector3 portraitSantaScale = Vector3.one;
 
     [Header("Info Page & Guide Settings")]
     [SerializeField] private RectTransform infoPageScrollObject;
@@ -55,6 +70,28 @@ public class OCController : MonoBehaviour
     [SerializeField] private float transitionDuration = 0.2f;
 
     private List<Tween> activeTweens = new List<Tween>();
+    private bool usesInstanceOrientationEvent;
+    private Vector2 landscapeSantaPosition;
+    private Vector2 landscapeSantaSize;
+    private Vector3 landscapeSantaScale;
+    private bool hasCachedLandscapeSantaState;
+    private Sprite defaultFreeSpinWinBackground;
+    private readonly Dictionary<RectTransform, RectTransformState> landscapeSlotOverlayStates =
+        new Dictionary<RectTransform, RectTransformState>();
+
+    private struct RectTransformState
+    {
+        public Vector2 Position;
+        public Vector2 Size;
+        public Vector3 Scale;
+
+        public RectTransformState(RectTransform rectTransform)
+        {
+            Position = rectTransform.anchoredPosition;
+            Size = rectTransform.sizeDelta;
+            Scale = rectTransform.localScale;
+        }
+    }
 
     private void Awake()
     {
@@ -70,24 +107,47 @@ public class OCController : MonoBehaviour
         {
             canvasScaler = orientationChange.GetComponent<CanvasScaler>();
         }
+        if (santaObject == null && slotObject != null)
+        {
+            santaObject = slotObject.Find("Santa") as RectTransform;
+        }
+        if (slotHolderObject == null && slotObject != null)
+        {
+            slotHolderObject = slotObject.Find("SlotHolder") as RectTransform;
+        }
+
+        EnsureSantaPresentationParent();
+        CacheLandscapeSantaState();
+        CacheLandscapeSlotOverlayStates();
+        ResolveFreeSpinWinBackground();
     }
 
     private void OnEnable()
     {
-        OrientationChange.OnOrientationChanged += HandleOrientationChange;
         if (orientationChange != null)
         {
             orientationChange.OnOrientationChangedInstance += HandleOrientationChange;
+            usesInstanceOrientationEvent = true;
+        }
+        else
+        {
+            OrientationChange.OnOrientationChanged += HandleOrientationChange;
+            usesInstanceOrientationEvent = false;
         }
     }
 
     private void OnDisable()
     {
-        OrientationChange.OnOrientationChanged -= HandleOrientationChange;
-        if (orientationChange != null)
+        if (usesInstanceOrientationEvent && orientationChange != null)
         {
             orientationChange.OnOrientationChangedInstance -= HandleOrientationChange;
         }
+        else
+        {
+            OrientationChange.OnOrientationChanged -= HandleOrientationChange;
+        }
+
+        KillActiveTweens();
     }
 
     private void HandleOrientationChange(OrientationChange.OrientationMode mode, int width, int height)
@@ -195,27 +255,14 @@ public class OCController : MonoBehaviour
             }
         }
 
-        // 6. Update Logo Object Scale and Position
-        if (logoObject != null)
-        {
-            Vector3 targetScale = isMobilePortrait ? portraitLogoScale : landscapeLogoScale;
-            Vector2 targetPosition = isMobilePortrait ? portraitLogoPosition : landscapeLogoPosition;
+        // 6. Apply independent portrait layouts to the free-spin overlays.
+        UpdateSlotOverlayLayouts(isMobilePortrait);
+        UpdateFreeSpinWinBackground(isMobilePortrait);
 
-            if (transitionDuration > 0)
-            {
-                Tween scaleTween = logoObject.DOScale(targetScale, transitionDuration).SetEase(Ease.OutCubic);
-                Tween posTween = logoObject.DOAnchorPos(targetPosition, transitionDuration).SetEase(Ease.OutCubic);
-                activeTweens.Add(scaleTween);
-                activeTweens.Add(posTween);
-            }
-            else
-            {
-                logoObject.localScale = targetScale;
-                logoObject.anchoredPosition = targetPosition;
-            }
-        }
+        // 7. Apply portrait-only Santa settings, or restore its saved landscape state.
+        UpdateSantaLayout(isMobilePortrait);
 
-        // 7. Update Info Page Scroll Object Height (1080 for Landscape, 1920 for Mobile Portrait)
+        // 8. Update Info Page Scroll Object Height (1080 for Landscape, 1920 for Mobile Portrait)
         if (infoPageScrollObject != null)
         {
             float targetHeight = isMobilePortrait ? 1920f : 1080f;
@@ -231,7 +278,7 @@ public class OCController : MonoBehaviour
             }
         }
 
-        // 8. Update Guide Scroll Object Height (1080 for Landscape, 1920 for Mobile Portrait)
+        // 9. Update Guide Scroll Object Height (1080 for Landscape, 1920 for Mobile Portrait)
         if (guideScrollObject != null)
         {
             float targetHeight = isMobilePortrait ? 1920f : 1080f;
@@ -258,5 +305,185 @@ public class OCController : MonoBehaviour
             }
         }
         activeTweens.Clear();
+    }
+
+    private void CacheLandscapeSantaState()
+    {
+        if (santaObject == null || hasCachedLandscapeSantaState)
+        {
+            return;
+        }
+
+        landscapeSantaPosition = santaObject.anchoredPosition;
+        landscapeSantaSize = santaObject.sizeDelta;
+        landscapeSantaScale = santaObject.localScale;
+        hasCachedLandscapeSantaState = true;
+    }
+
+    private void CacheLandscapeSlotOverlayStates()
+    {
+        CacheLandscapeSlotOverlayState(freeSpinPanel);
+        CacheLandscapeSlotOverlayState(freeSpinWinPanel);
+    }
+
+    private void ResolveFreeSpinWinBackground()
+    {
+        if (freeSpinWinBackgroundImage == null && freeSpinWinPanel != null)
+        {
+            freeSpinWinBackgroundImage = freeSpinWinPanel.GetComponent<Image>();
+        }
+
+        if (freeSpinWinBackgroundImage != null && defaultFreeSpinWinBackground == null)
+        {
+            defaultFreeSpinWinBackground = freeSpinWinBackgroundImage.sprite;
+        }
+    }
+
+    private void UpdateFreeSpinWinBackground(bool isMobilePortrait)
+    {
+        ResolveFreeSpinWinBackground();
+        if (freeSpinWinBackgroundImage == null)
+        {
+            return;
+        }
+
+        Sprite targetBackground = isMobilePortrait
+            ? portraitFreeSpinWinBackground ?? landscapeFreeSpinWinBackground ?? defaultFreeSpinWinBackground
+            : landscapeFreeSpinWinBackground ?? defaultFreeSpinWinBackground;
+
+        if (targetBackground != null)
+        {
+            freeSpinWinBackgroundImage.sprite = targetBackground;
+        }
+    }
+
+    private void CacheLandscapeSlotOverlayState(RectTransform overlay)
+    {
+        if (overlay != null && !landscapeSlotOverlayStates.ContainsKey(overlay))
+        {
+            landscapeSlotOverlayStates.Add(overlay, new RectTransformState(overlay));
+        }
+    }
+
+    private void UpdateSlotOverlayLayouts(bool isMobilePortrait)
+    {
+        CacheLandscapeSlotOverlayStates();
+
+        UpdateSlotOverlayLayout(
+            freeSpinPanel,
+            isMobilePortrait,
+            portraitFreeSpinPanelPosition,
+            portraitFreeSpinPanelSize,
+            portraitFreeSpinPanelScale);
+
+        UpdateSlotOverlayLayout(
+            freeSpinWinPanel,
+            isMobilePortrait,
+            portraitFreeSpinWinPanelPosition,
+            portraitFreeSpinWinPanelSize,
+            portraitFreeSpinWinPanelScale);
+    }
+
+    private void UpdateSlotOverlayLayout(
+        RectTransform overlay,
+        bool isMobilePortrait,
+        Vector2 portraitPosition,
+        Vector2 portraitSize,
+        Vector3 portraitScale)
+    {
+        if (overlay == null || !landscapeSlotOverlayStates.TryGetValue(overlay, out RectTransformState landscapeState))
+        {
+            return;
+        }
+
+        Vector2 targetPosition = isMobilePortrait ? portraitPosition : landscapeState.Position;
+        Vector2 targetSize = isMobilePortrait ? portraitSize : landscapeState.Size;
+        Vector3 targetScale = isMobilePortrait ? portraitScale : landscapeState.Scale;
+
+        if (transitionDuration > 0f)
+        {
+            activeTweens.Add(overlay.DOAnchorPos(targetPosition, transitionDuration).SetEase(Ease.OutCubic));
+            activeTweens.Add(overlay.DOSizeDelta(targetSize, transitionDuration).SetEase(Ease.OutCubic));
+            activeTweens.Add(overlay.DOScale(targetScale, transitionDuration).SetEase(Ease.OutCubic));
+        }
+        else
+        {
+            overlay.anchoredPosition = targetPosition;
+            overlay.sizeDelta = targetSize;
+            overlay.localScale = targetScale;
+        }
+    }
+
+    private void UpdateSantaLayout(bool isMobilePortrait)
+    {
+        if (santaObject == null)
+        {
+            return;
+        }
+
+        CacheLandscapeSantaState();
+        UpdateSantaDrawOrder(isMobilePortrait);
+
+        Vector2 targetPosition = isMobilePortrait ? portraitSantaPosition : landscapeSantaPosition;
+        Vector2 targetSize = isMobilePortrait ? portraitSantaSize : landscapeSantaSize;
+        Vector3 targetScale = isMobilePortrait ? portraitSantaScale : landscapeSantaScale;
+
+        if (transitionDuration > 0f)
+        {
+            activeTweens.Add(santaObject.DOAnchorPos(targetPosition, transitionDuration).SetEase(Ease.OutCubic));
+            activeTweens.Add(santaObject.DOSizeDelta(targetSize, transitionDuration).SetEase(Ease.OutCubic));
+            activeTweens.Add(santaObject.DOScale(targetScale, transitionDuration).SetEase(Ease.OutCubic));
+        }
+        else
+        {
+            santaObject.anchoredPosition = targetPosition;
+            santaObject.sizeDelta = targetSize;
+            santaObject.localScale = targetScale;
+        }
+
+    }
+
+    private void EnsureSantaPresentationParent()
+    {
+        if (santaObject == null || slotObject == null || santaObject.parent == slotObject)
+        {
+            return;
+        }
+
+        santaObject.SetParent(slotObject, false);
+    }
+
+    private void UpdateSantaDrawOrder(bool isMobilePortrait)
+    {
+        if (santaObject == null || slotObject == null || slotHolderObject == null)
+        {
+            return;
+        }
+
+        EnsureSantaPresentationParent();
+        if (slotHolderObject.parent != slotObject)
+        {
+            return;
+        }
+
+        int santaIndex = santaObject.GetSiblingIndex();
+        int slotHolderIndex = slotHolderObject.GetSiblingIndex();
+
+        if (isMobilePortrait)
+        {
+            // Draw Santa behind the complete SlotHolder subtree in portrait.
+            int portraitIndex = santaIndex < slotHolderIndex
+                ? slotHolderIndex - 1
+                : slotHolderIndex;
+            santaObject.SetSiblingIndex(portraitIndex);
+        }
+        else
+        {
+            // Draw Santa above the complete SlotHolder subtree in landscape.
+            int landscapeIndex = santaIndex < slotHolderIndex
+                ? slotHolderIndex
+                : slotHolderIndex + 1;
+            santaObject.SetSiblingIndex(landscapeIndex);
+        }
     }
 }
