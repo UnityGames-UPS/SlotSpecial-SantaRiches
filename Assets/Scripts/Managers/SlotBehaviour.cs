@@ -18,11 +18,6 @@ internal sealed class SpinResultEvent : UnityEvent<SpinResult>
 }
 
 [Serializable]
-internal sealed class WinTierEvent : UnityEvent<int, double>
-{
-}
-
-[Serializable]
 internal sealed class SymbolSelectedEvent : UnityEvent<int, int, int>
 {
 }
@@ -119,6 +114,22 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField] private Transform freeSpinWinBoxesRoot;
     [SerializeField, Min(0.1f)] private float freeSpinWinBoxDuration = 3f;
 
+    [Header("Win Animation Sprites")]
+    [SerializeField] private List<Sprite> animSprites10 = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesA = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesBell = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesCandle = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesCup = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesDeer = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesGift = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesJ = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesK = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesMoon = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesQ = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesSanta = new List<Sprite>();
+    [SerializeField] private List<Sprite> animSpritesSocks = new List<Sprite>();
+    [SerializeField, Min(0.1f)] private float winSymbolLoopDuration = 1.2f;
+
     [Header("Free Spin Start Transition")]
     [SerializeField, Min(0f)] private float freeSpinSymbolFadeOutDuration = 1f;
     [SerializeField, Min(0f)] private float freeSpinSymbolFadeInDuration = 1f;
@@ -131,11 +142,8 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField] private UnityEvent onSpinStarted = new UnityEvent();
     [SerializeField] private SpinResultEvent onSpinStopped = new SpinResultEvent();
     [SerializeField] private UnityEvent onSpinRequestFailed = new UnityEvent();
-    [SerializeField] private WinTierEvent onWinTier = new WinTierEvent();
     [SerializeField] private SymbolSelectedEvent onSymbolSelected = new SymbolSelectedEvent();
     [SerializeField] private UnityEvent onSymbolInfoDismissed = new UnityEvent();
-
-    internal bool CheckPopups;
 
     internal event Action<SpinResult> RoundStopped;
     internal event Action<SpinResult> RequiredPresentationCompleted;
@@ -160,6 +168,8 @@ public class SlotBehaviour : MonoBehaviour
     private readonly HashSet<int> reportedUnknownSymbolIds = new HashSet<int>();
     private readonly HashSet<int> reportedMissingWinLineIds = new HashSet<int>();
     private readonly List<List<GameObject>> freeSpinWinBoxes = new List<List<GameObject>>();
+    private readonly List<List<WinningSymbolAnimationRuntime>> winningSymbolAnimations =
+        new List<List<WinningSymbolAnimationRuntime>>();
     private bool serverSymbolMappingActive;
 
     internal List<List<int>> currentDisplayMatrix;
@@ -205,6 +215,14 @@ public class SlotBehaviour : MonoBehaviour
         internal Tween motionTween;
         internal float motionBasePixelsPerSecond;
         internal int completedCycles;
+    }
+
+    private sealed class WinningSymbolAnimationRuntime
+    {
+        internal GameObject root;
+        internal Image renderer;
+        internal ImageAnimation animation;
+        internal Image staticSymbol;
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -666,6 +684,7 @@ public class SlotBehaviour : MonoBehaviour
     private void BuildFreeSpinWinBoxCache()
     {
         freeSpinWinBoxes.Clear();
+        winningSymbolAnimations.Clear();
         if (freeSpinWinBoxesRoot == null)
         {
             freeSpinWinBoxesRoot = Resources.FindObjectsOfTypeAll<Transform>()
@@ -693,6 +712,8 @@ public class SlotBehaviour : MonoBehaviour
         {
             Transform column = columns[columnIndex];
             List<GameObject> columnBoxes = new List<GameObject>();
+            List<WinningSymbolAnimationRuntime> columnAnimations =
+                new List<WinningSymbolAnimationRuntime>();
             List<Transform> rows = Enumerable.Range(0, column.childCount)
                 .Select(column.GetChild)
                 .OrderByDescending(row => row is RectTransform rect ? rect.anchoredPosition.y : row.localPosition.y)
@@ -704,19 +725,41 @@ public class SlotBehaviour : MonoBehaviour
             {
                 Transform row = rows[rowIndex];
                 Transform symbolAnimation = row.Find("Animations");
-                if (symbolAnimation != null) symbolAnimation.gameObject.SetActive(false);
+                WinningSymbolAnimationRuntime animationRuntime = null;
+                if (symbolAnimation != null)
+                {
+                    animationRuntime = new WinningSymbolAnimationRuntime
+                    {
+                        root = symbolAnimation.gameObject,
+                        renderer = symbolAnimation.GetComponent<Image>() ??
+                            symbolAnimation.GetComponentInChildren<Image>(true),
+                        animation = symbolAnimation.GetComponent<ImageAnimation>() ??
+                            symbolAnimation.GetComponentInChildren<ImageAnimation>(true),
+                        staticSymbol = columnIndex < Tempimages.Count &&
+                            Tempimages[columnIndex]?.slotImages != null &&
+                            rowIndex < Tempimages[columnIndex].slotImages.Count
+                                ? Tempimages[columnIndex].slotImages[rowIndex]
+                                : null
+                    };
+                    symbolAnimation.gameObject.SetActive(false);
+                }
 
                 Transform winBox = row.Find("WinBox");
                 columnBoxes.Add(winBox != null ? winBox.gameObject : null);
+                columnAnimations.Add(animationRuntime);
             }
 
             while (columnBoxes.Count < DefaultRowCount) columnBoxes.Add(null);
+            while (columnAnimations.Count < DefaultRowCount) columnAnimations.Add(null);
             freeSpinWinBoxes.Add(columnBoxes);
+            winningSymbolAnimations.Add(columnAnimations);
         }
 
         while (freeSpinWinBoxes.Count < DefaultReelCount)
         {
             freeSpinWinBoxes.Add(Enumerable.Repeat<GameObject>(null, DefaultRowCount).ToList());
+            winningSymbolAnimations.Add(
+                Enumerable.Repeat<WinningSymbolAnimationRuntime>(null, DefaultRowCount).ToList());
         }
     }
 
@@ -998,7 +1041,7 @@ public class SlotBehaviour : MonoBehaviour
             return;
         }
 
-        ApplySantaFeatureSymbols(result);
+        PrepareExtraGiftWildSymbols(result);
 
         if (waitingForLateResult && !IsSpinning)
         {
@@ -1010,29 +1053,11 @@ public class SlotBehaviour : MonoBehaviour
         resultReceived = true;
     }
 
-    private void ApplySantaFeatureSymbols(SpinResult result)
+    private void PrepareExtraGiftWildSymbols(SpinResult result)
     {
         if (result?.resultMatrix == null || gameConfig == null)
         {
             return;
-        }
-
-        if (result.expandedWildReels != null)
-        {
-            foreach (int reelIndex in result.expandedWildReels)
-            {
-                if ((reelIndex != 1 && reelIndex != 3) ||
-                    reelIndex >= result.resultMatrix.Count || result.resultMatrix[reelIndex] == null)
-                {
-                    continue;
-                }
-
-                int visibleRows = Mathf.Min(DefaultRowCount, result.resultMatrix[reelIndex].Count);
-                for (int row = 0; row < visibleRows; row++)
-                {
-                    result.resultMatrix[reelIndex][row] = gameConfig.expandingWildSymbolId;
-                }
-            }
         }
 
         if (result.extraGiftWilds == null)
@@ -1058,8 +1083,7 @@ public class SlotBehaviour : MonoBehaviour
         return result?.resultMatrix != null && gameConfig != null && position != null &&
             position.col >= 0 && position.col < result.resultMatrix.Count &&
             result.resultMatrix[position.col] != null && position.row >= 0 &&
-            position.row < result.resultMatrix[position.col].Count &&
-            (result.expandedWildReels == null || !result.expandedWildReels.Contains(position.col));
+            position.row < result.resultMatrix[position.col].Count;
     }
 
     private IEnumerator RevealExtraGiftWilds(SpinResult result)
@@ -1154,7 +1178,6 @@ public class SlotBehaviour : MonoBehaviour
         resultReceived = false;
         resultFailed = false;
         pendingResult = null;
-        CheckPopups = false;
 
         PlayLoopingAudio(spinAudio);
         onSpinStarted?.Invoke();
@@ -1665,10 +1688,6 @@ public class SlotBehaviour : MonoBehaviour
         {
             ShowWinState(displayedWin, result.winAmountDecimalPlaces);
             PlayAudio(winAudio);
-            if (!(result.isFreeSpinResult || (gameManager != null && gameManager.IsFreeSpinActive)))
-            {
-                CheckWinPopups(result);
-            }
         }
         else
         {
@@ -1701,33 +1720,6 @@ public class SlotBehaviour : MonoBehaviour
     {
         int rowCount = GetRowCount();
         ApplyMatrix(GenerateRandomMatrix(rowCount));
-    }
-
-    internal void CheckWinPopups()
-    {
-        if (pendingResult != null)
-        {
-            CheckWinPopups(pendingResult);
-        }
-    }
-
-    private void CheckWinPopups(SpinResult result)
-    {
-        double win = result.grandTotalWin > 0d ? result.grandTotalWin : result.winAmount;
-        double totalBet = gameManager != null ? gameManager.CurrentTotalBet : 0d;
-        if (win <= 0d || totalBet <= 0d)
-        {
-            CheckPopups = false;
-            return;
-        }
-
-        double multiplier = win / totalBet;
-        int tier = multiplier >= 15d ? 3 : multiplier >= 10d ? 2 : multiplier >= 5d ? 1 : 0;
-        CheckPopups = tier > 0;
-        if (tier > 0)
-        {
-            onWinTier?.Invoke(tier, win);
-        }
     }
 
     private void StartResultAnimations(SpinResult result)
@@ -1885,7 +1877,10 @@ public class SlotBehaviour : MonoBehaviour
             return;
         }
 
-        bool showedAnyBox = false;
+        // Activate the shared parent before enabling a symbol overlay so its
+        // ImageAnimation Awake/Invoke lifecycle starts on an active object.
+        freeSpinWinBoxesRoot.gameObject.SetActive(true);
+        bool showedAnyVisual = false;
         foreach (int position in positions.Distinct())
         {
             int rowIndex = position / DefaultReelCount;
@@ -1897,12 +1892,88 @@ public class SlotBehaviour : MonoBehaviour
             }
 
             GameObject winBox = freeSpinWinBoxes[columnIndex][rowIndex];
-            if (winBox == null) continue;
-            winBox.SetActive(true);
-            showedAnyBox = true;
+            if (winBox != null)
+            {
+                winBox.SetActive(true);
+                showedAnyVisual = true;
+            }
+
+            if (StartWinningSymbolAnimation(columnIndex, rowIndex))
+            {
+                showedAnyVisual = true;
+            }
         }
 
-        freeSpinWinBoxesRoot.gameObject.SetActive(showedAnyBox);
+        freeSpinWinBoxesRoot.gameObject.SetActive(showedAnyVisual);
+    }
+
+    private bool StartWinningSymbolAnimation(int columnIndex, int rowIndex)
+    {
+        if (currentDisplayMatrix == null ||
+            columnIndex < 0 || columnIndex >= winningSymbolAnimations.Count ||
+            rowIndex < 0 || rowIndex >= winningSymbolAnimations[columnIndex].Count ||
+            columnIndex >= currentDisplayMatrix.Count || currentDisplayMatrix[columnIndex] == null ||
+            rowIndex >= currentDisplayMatrix[columnIndex].Count)
+        {
+            return false;
+        }
+
+        WinningSymbolAnimationRuntime runtime = winningSymbolAnimations[columnIndex][rowIndex];
+        if (runtime?.root == null || runtime.renderer == null || runtime.animation == null)
+        {
+            return false;
+        }
+
+        if (!TryGetWinAnimation(
+                currentDisplayMatrix[columnIndex][rowIndex],
+                out List<Sprite> frames))
+        {
+            return false;
+        }
+
+        runtime.animation.StopAnimation();
+        runtime.animation.textureArray = new List<Sprite>(frames);
+        runtime.animation.rendererDelegate = runtime.renderer;
+        runtime.animation.doLoopAnimation = true;
+        runtime.animation.delayBetweenLoop = 0f;
+        int frameCount = runtime.animation.textureArray.Count;
+        runtime.animation.AnimationSpeed = 0.0416666679f * frameCount * frameCount /
+            Mathf.Max(0.1f, winSymbolLoopDuration);
+
+        runtime.renderer.color = Color.white;
+        runtime.renderer.enabled = true;
+        if (runtime.staticSymbol != null)
+        {
+            runtime.staticSymbol.enabled = false;
+        }
+
+        runtime.root.SetActive(true);
+        runtime.animation.StartAnimation();
+        return true;
+    }
+
+    private bool TryGetWinAnimation(
+        int symbolId,
+        out List<Sprite> frames)
+    {
+        Sprite symbol = GetSymbolSprite(symbolId);
+
+        if (symbol == sprite10) frames = animSprites10;
+        else if (symbol == spriteA) frames = animSpritesA;
+        else if (symbol == spriteBell) frames = animSpritesBell;
+        else if (symbol == spriteCandle) frames = animSpritesCandle;
+        else if (symbol == spriteCup) frames = animSpritesCup;
+        else if (symbol == spriteDeer) frames = animSpritesDeer;
+        else if (symbol == spriteGift) frames = animSpritesGift;
+        else if (symbol == spriteJ) frames = animSpritesJ;
+        else if (symbol == spriteK) frames = animSpritesK;
+        else if (symbol == spriteMoon) frames = animSpritesMoon;
+        else if (symbol == spriteQ) frames = animSpritesQ;
+        else if (symbol == spriteSanta) frames = animSpritesSanta;
+        else if (symbol == spriteSocks) frames = animSpritesSocks;
+        else frames = null;
+
+        return frames != null && frames.Count > 0;
     }
 
     private void CompleteRequiredResultPresentation()
@@ -2125,6 +2196,29 @@ public class SlotBehaviour : MonoBehaviour
             foreach (GameObject winBox in column)
             {
                 if (winBox != null) winBox.SetActive(false);
+            }
+        }
+
+        foreach (List<WinningSymbolAnimationRuntime> column in winningSymbolAnimations)
+        {
+            foreach (WinningSymbolAnimationRuntime runtime in column)
+            {
+                if (runtime?.animation != null)
+                {
+                    runtime.animation.StopAnimation();
+                }
+
+                if (runtime?.root != null)
+                {
+                    runtime.root.SetActive(false);
+                }
+
+                if (runtime?.staticSymbol != null)
+                {
+                    Color color = runtime.staticSymbol.color;
+                    runtime.staticSymbol.color = new Color(color.r, color.g, color.b, 1f);
+                    runtime.staticSymbol.enabled = true;
+                }
             }
         }
 

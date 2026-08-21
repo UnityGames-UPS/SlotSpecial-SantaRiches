@@ -13,6 +13,13 @@ public class StarFountain : MonoBehaviour
     [Header("Behavior Settings")]
     [Tooltip("If true, items maintain initial scale and alpha throughout travel (fade variation 0-10% max). Useful for coin fountains.")]
     [SerializeField] private bool disableEndFadeAndScale = false;
+    [Tooltip("Keeps each item's original transform rotation throughout the burst.")]
+    [SerializeField] private bool disableItemRotation = false;
+
+    [Header("Center Coin Shower")]
+    [SerializeField, Min(1)] private int coinShowerMin = 100;
+    [SerializeField, Min(1)] private int coinShowerMax = 100;
+    [SerializeField, Min(0f)] private float coinShowerSpawnJitter = 0.35f;
 
     private readonly List<GameObject> starPool = new List<GameObject>();
     private int activeBurstStars;
@@ -125,6 +132,7 @@ public class StarFountain : MonoBehaviour
 
         if (rt != null) rt.anchoredPosition = Vector2.zero;
         else star.transform.localPosition = Vector3.zero;
+        star.transform.localRotation = Quaternion.identity;
     }
 
     private void OnBurstStarComplete(GameObject star)
@@ -152,18 +160,9 @@ public class StarFountain : MonoBehaviour
 
     private Vector2 GetRandomEdgePosition()
     {
-        float width = 800f;
-        float height = 600f;
-        RectTransform boundsRect = (starSpawnContainer != null ? starSpawnContainer : transform) as RectTransform;
-
-        // The fountain object itself can be only 100x100. Use the largest parent
-        // UI bounds so the particles visibly travel away from the center.
-        while (boundsRect != null)
-        {
-            if (boundsRect.rect.width > width) width = boundsRect.rect.width;
-            if (boundsRect.rect.height > height) height = boundsRect.rect.height;
-            boundsRect = boundsRect.parent as RectTransform;
-        }
+        Vector2 bounds = GetFountainBounds();
+        float width = bounds.x;
+        float height = bounds.y;
 
         float halfWidth = width * 0.5f;
         float halfHeight = height * 0.5f;
@@ -175,6 +174,24 @@ public class StarFountain : MonoBehaviour
         float distanceToBorder = Mathf.Min(horizontalDistance, verticalDistance);
 
         return new Vector2(cos * distanceToBorder, sin * distanceToBorder);
+    }
+
+    private Vector2 GetFountainBounds()
+    {
+        float width = 800f;
+        float height = 600f;
+        RectTransform boundsRect = (starSpawnContainer != null ? starSpawnContainer : transform) as RectTransform;
+
+        // The fountain object itself can be only 100x100. Use the largest parent
+        // UI bounds so particles can enter and leave beyond the popup edges.
+        while (boundsRect != null)
+        {
+            if (boundsRect.rect.width > width) width = boundsRect.rect.width;
+            if (boundsRect.rect.height > height) height = boundsRect.rect.height;
+            boundsRect = boundsRect.parent as RectTransform;
+        }
+
+        return new Vector2(width, height);
     }
 
     private bool SpawnSingleBurstStar()
@@ -198,7 +215,7 @@ public class StarFountain : MonoBehaviour
         float randomScale = Random.Range(0.3f, 1.2f);
         star.transform.localScale = Vector3.one * randomScale;
 
-        float randomRotation = Random.Range(0f, 360f);
+        float randomRotation = disableItemRotation ? 0f : Random.Range(0f, 360f);
         star.transform.localRotation = Quaternion.Euler(0f, 0f, randomRotation);
 
         CanvasGroup cg = star.GetComponent<CanvasGroup>();
@@ -237,8 +254,14 @@ public class StarFountain : MonoBehaviour
             starSeq.Join(star.transform.DOLocalMove(targetPos, animDuration).From(startOffset).SetEase(Ease.Linear));
         }
 
-        float extraRot = Random.Range(-90f, 90f);
-        starSeq.Join(star.transform.DORotate(new Vector3(0, 0, randomRotation + extraRot), animDuration, RotateMode.FastBeyond360));
+        if (!disableItemRotation)
+        {
+            float extraRot = Random.Range(-90f, 90f);
+            starSeq.Join(star.transform.DORotate(
+                new Vector3(0, 0, randomRotation + extraRot),
+                animDuration,
+                RotateMode.FastBeyond360));
+        }
 
         if (!disableEndFadeAndScale)
         {
@@ -246,6 +269,113 @@ public class StarFountain : MonoBehaviour
         }
 
         starSeq.OnComplete(() => OnBurstStarComplete(star));
+        return true;
+    }
+
+    internal void PlayCenterCoinShower(float showerDuration)
+    {
+        StopStarBurst();
+        if (starPrefab == null) return;
+
+        if (!gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+
+        InitializeStarPool();
+        int minimum = Mathf.Max(1, coinShowerMin);
+        int maximum = Mathf.Max(minimum, coinShowerMax);
+        int coinCount = Random.Range(minimum, maximum + 1);
+        const float maximumTravelDuration = 2.2f;
+        // Keep releasing new coins for the complete popup presentation. Coins
+        // launched near the end are recycled when UIManager closes the popup.
+        float spawnWindow = Mathf.Max(0f, showerDuration);
+        float spawnInterval = coinCount > 0 ? spawnWindow / coinCount : 0f;
+        for (int i = 0; i < coinCount; i++)
+        {
+            float spawnDelay = spawnInterval * i;
+            if (spawnInterval > 0f)
+            {
+                spawnDelay += Random.Range(0f, Mathf.Min(spawnInterval, coinShowerSpawnJitter));
+            }
+
+            float travelDuration = Random.Range(1.8f, maximumTravelDuration);
+            if (SpawnSingleCenterCoin(i % 3, spawnDelay, travelDuration))
+            {
+                activeBurstStars++;
+            }
+        }
+
+        if (activeBurstStars == 0)
+        {
+            DeactivateFountain();
+        }
+    }
+
+    private bool SpawnSingleCenterCoin(int directionIndex, float spawnDelay, float duration)
+    {
+        GameObject coin = GetPooledStar();
+        if (coin == null) return false;
+
+        RecycleStar(coin);
+        Vector2 bounds = GetFountainBounds();
+        Vector2 startPosition = new Vector2(
+            Random.Range(-bounds.x * 0.025f, bounds.x * 0.025f),
+            Random.Range(bounds.y * 0.02f, bounds.y * 0.1f));
+        float horizontalDirection = directionIndex == 0 ? -1f : directionIndex == 2 ? 1f : 0f;
+        float horizontalVelocity = horizontalDirection == 0f
+            ? Random.Range(-bounds.x * 0.035f, bounds.x * 0.035f)
+            : horizontalDirection * Random.Range(bounds.x * 0.25f, bounds.x * 0.38f);
+        float verticalVelocity = -Random.Range(bounds.y * 0.05f, bounds.y * 0.14f);
+        float gravity = -Random.Range(bounds.y * 0.35f, bounds.y * 0.55f);
+        float elapsed = 0f;
+
+        RectTransform coinRect = coin.GetComponent<RectTransform>();
+        if (coinRect != null) coinRect.anchoredPosition = startPosition;
+        else coin.transform.localPosition = startPosition;
+
+        coin.transform.localScale = Vector3.one * Random.Range(0.55f, 1.05f);
+        coin.transform.localRotation = Quaternion.identity;
+        CanvasGroup canvasGroup = coin.GetComponent<CanvasGroup>();
+        Image image = coin.GetComponent<Image>();
+        if (canvasGroup != null) canvasGroup.alpha = 0f;
+        if (image != null)
+        {
+            Color color = image.color;
+            color.a = 0f;
+            image.color = color;
+        }
+
+        coin.SetActive(true);
+        Sequence coinSequence = DOTween.Sequence()
+            .SetTarget(coin)
+            .SetUpdate(true);
+        coinSequence.AppendInterval(Mathf.Max(0f, spawnDelay));
+        coinSequence.AppendCallback(() =>
+        {
+            if (canvasGroup != null) canvasGroup.alpha = 1f;
+            if (image != null)
+            {
+                Color color = image.color;
+                color.a = 1f;
+                image.color = color;
+            }
+        });
+        coinSequence.Append(DOTween.To(
+                () => elapsed,
+                value =>
+                {
+                    elapsed = value;
+                    Vector2 position = startPosition + new Vector2(
+                        horizontalVelocity * value,
+                        verticalVelocity * value + 0.5f * gravity * value * value);
+                    if (coinRect != null) coinRect.anchoredPosition = position;
+                    else coin.transform.localPosition = position;
+                },
+                duration,
+                duration)
+            .SetEase(Ease.Linear));
+        coinSequence.OnComplete(() => OnBurstStarComplete(coin));
         return true;
     }
 

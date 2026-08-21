@@ -14,6 +14,8 @@ using UnityEngine;
 public class GameManager : MonoBehaviour
 {
     private const int InfiniteAutoplay = -1;
+    private const double BigWinMultiplier = 5d;
+    private const double SuperBigWinMultiplier = 10d;
 
     [Header("Controllers")]
     [SerializeField] private SocketIOManager socketManager;
@@ -62,7 +64,8 @@ public class GameManager : MonoBehaviour
         (slotBehaviour != null && slotBehaviour.IsCurrentlySpinning);
     internal bool IsWaitingForLateResult => slotBehaviour != null && slotBehaviour.IsWaitingForLateResult;
     internal bool IsResultPresentationActive =>
-        slotBehaviour != null && slotBehaviour.IsResultPresentationActive;
+        extraWinPresentationInProgress ||
+        (slotBehaviour != null && slotBehaviour.IsResultPresentationActive);
     internal bool IsExtraGiftWildRevealActive =>
         slotBehaviour != null && slotBehaviour.IsExtraGiftWildRevealActive;
     internal bool IsAutoplayRoundSettling => autoplayRoundInProgress && !IsAutoplayActive &&
@@ -91,6 +94,9 @@ public class GameManager : MonoBehaviour
     private double freeSpinInitialServerTotalWin;
     private bool freeSpinBalanceDeferred;
     private SpinResult lastCompletedResult;
+    private bool slotPresentationCompleted;
+    private bool extraWinPresentationInProgress;
+    private int extraWinPresentationVersion;
 
     private void Awake()
     {
@@ -106,6 +112,7 @@ public class GameManager : MonoBehaviour
     private void OnDisable()
     {
         UnbindViewEvents();
+        CancelExtraWinPresentation();
         if (autoplayDelayRoutine != null)
         {
             StopCoroutine(autoplayDelayRoutine);
@@ -163,6 +170,7 @@ public class GameManager : MonoBehaviour
 
     internal void OnDisconnected()
     {
+        CancelExtraWinPresentation();
         StopAutoSpin();
         ResetFreeSpinFeature();
         Disconnected?.Invoke();
@@ -264,8 +272,10 @@ public class GameManager : MonoBehaviour
 
     internal bool StartAutoSpin(int spinCount)
     {
-        if (spinCount == 0 || spinCount < InfiniteAutoplay || IsAutoplayActive || !CanStartManualSpin)
+        string blockReason = GetAutoplayStartBlockReason(spinCount);
+        if (!string.IsNullOrEmpty(blockReason))
         {
+            Debug.LogWarning($"[GameManager] Autoplay could not start: {blockReason}");
             return false;
         }
 
@@ -278,8 +288,64 @@ public class GameManager : MonoBehaviour
             return true;
         }
 
+        Debug.LogWarning("[GameManager] Autoplay could not start because the first round became unavailable.");
         StopAutoSpin();
         return false;
+    }
+
+    internal string GetAutoplayStartBlockReason(int spinCount)
+    {
+        if (spinCount == 0 || spinCount < InfiniteAutoplay)
+        {
+            return "the selected spin count is invalid.";
+        }
+
+        if (IsAutoplayActive)
+        {
+            return "autoplay is already active.";
+        }
+
+        if (!gameData.IsInitialized)
+        {
+            return "the game has not finished initializing.";
+        }
+
+        if (!IsSocketConnected)
+        {
+            return "the game is not connected to the server.";
+        }
+
+        if (!CanAffordCurrentBet)
+        {
+            return "the balance is below the selected total bet.";
+        }
+
+        if (CurrentState != GameState.Idle || IsCurrentlySpinning || autoplayRoundInProgress)
+        {
+            return "another spin is already in progress.";
+        }
+
+        if (IsWaitingForLateResult || IsResultPresentationActive)
+        {
+            return "the previous spin presentation has not finished.";
+        }
+
+        if (IsFreeSpinActive || IsFreeSpinAwaitingStart)
+        {
+            return "Free Games are active or awaiting confirmation.";
+        }
+
+        if (slotBehaviour == null || !slotBehaviour.CanBeginSpinPresentation)
+        {
+            return "the reel presentation is not ready.";
+        }
+
+        if (gameData.Config?.availableBets == null || gameData.Config.availableBets.Count == 0)
+        {
+            return "no bet configuration is available.";
+        }
+
+        return null;
     }
 
     internal bool TakeFreeSpinWin()
@@ -428,6 +494,7 @@ public class GameManager : MonoBehaviour
             return false;
         }
 
+        slotPresentationCompleted = false;
         autoplayRoundInProgress = autoplayRound;
         freeSpinRoundInProgress = freeSpinRound;
         IsStopRequested = CurrentSpinSpeed == SpinSpeed.QuickSpin;
@@ -500,6 +567,7 @@ public class GameManager : MonoBehaviour
         }
 
         lastCompletedResult = result;
+        TryStartExtraWinPresentation(result);
         if (IsFreeSpinActive)
         {
             ApplyFreeSpinResultProgress(result);
@@ -511,11 +579,25 @@ public class GameManager : MonoBehaviour
 
     private void HandleRequiredPresentationCompleted(SpinResult result)
     {
+        SpinResult completedResult = result ?? lastCompletedResult;
+        slotPresentationCompleted = true;
+        if (extraWinPresentationInProgress)
+        {
+            CurrentState = GameState.ShowingWin;
+            NotifyStateChanged();
+            return;
+        }
+
+        CompleteRoundPresentation(completedResult);
+    }
+
+    private void CompleteRoundPresentation(SpinResult completedResult)
+    {
+        slotPresentationCompleted = false;
         autoplayRoundInProgress = false;
         freeSpinRoundInProgress = false;
         IsStopRequested = false;
 
-        SpinResult completedResult = result ?? lastCompletedResult;
         if (IsFreeSpinActive)
         {
             CurrentState = GameState.FreeSpinMode;
@@ -562,13 +644,85 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        float delay = GetWinAmount(result ?? lastCompletedResult) > 0d ? autoSpinWinGap : autoSpinGap;
+        float delay = GetWinAmount(completedResult) > 0d ? autoSpinWinGap : autoSpinGap;
         if (autoplayDelayRoutine != null)
         {
             StopCoroutine(autoplayDelayRoutine);
         }
 
         autoplayDelayRoutine = StartCoroutine(StartNextAutoplayRound(delay));
+    }
+
+    private void TryStartExtraWinPresentation(SpinResult result)
+    {
+        if (result == null || result.isFreeSpinResult || IsFreeSpinActive || uiManager == null)
+        {
+            return;
+        }
+
+        double totalBet = CurrentTotalBet;
+        double winAmount = result.winAmount > 0d ? result.winAmount : result.grandTotalWin;
+        if (totalBet <= 0d || winAmount <= 0d)
+        {
+            return;
+        }
+
+        double calculatedMultiplier = winAmount / totalBet;
+        WinPopupType popupType = calculatedMultiplier >= SuperBigWinMultiplier
+            ? WinPopupType.SuperBigWin
+            : calculatedMultiplier >= BigWinMultiplier
+                ? WinPopupType.BigWin
+                : WinPopupType.RegularWin;
+        if (popupType == WinPopupType.RegularWin)
+        {
+            return;
+        }
+
+        int presentationVersion = ++extraWinPresentationVersion;
+        extraWinPresentationInProgress = true;
+        bool started = uiManager.ShowExtraWinPresentation(
+            popupType,
+            winAmount,
+            result.winAmountDecimalPlaces,
+            () => HandleExtraWinPresentationCompleted(presentationVersion));
+        if (!started)
+        {
+            extraWinPresentationInProgress = false;
+            return;
+        }
+
+        Debug.Log(
+            $"[GameManager] {popupType} selected: win {winAmount:0.####} / " +
+            $"total bet {totalBet:0.####} = {calculatedMultiplier:0.####}x " +
+            $"(server payload totalMultiplier: {result.totalMultiplier:0.####}).");
+    }
+
+    private void HandleExtraWinPresentationCompleted(int presentationVersion)
+    {
+        if (presentationVersion != extraWinPresentationVersion)
+        {
+            return;
+        }
+
+        extraWinPresentationInProgress = false;
+        if (slotPresentationCompleted)
+        {
+            CompleteRoundPresentation(lastCompletedResult);
+            return;
+        }
+
+        CurrentState = slotBehaviour != null && slotBehaviour.IsResultPresentationActive
+            ? GameState.ShowingWin
+            : CurrentState;
+        NotifyStateChanged();
+    }
+
+    private void CancelExtraWinPresentation()
+    {
+        extraWinPresentationVersion++;
+        extraWinPresentationInProgress = false;
+        slotPresentationCompleted = false;
+        uiManager?.HideExtraWinPresentation();
     }
 
     private IEnumerator StartNextAutoplayRound(float delay)
@@ -714,6 +868,7 @@ public class GameManager : MonoBehaviour
 
     private void HandlePresentationFailed(string reason)
     {
+        CancelExtraWinPresentation();
         gameData.RestoreAuthoritativeBalance();
         CurrentState = gameData.IsInitialized ? GameState.Idle : GameState.Initializing;
         autoplayRoundInProgress = false;

@@ -260,17 +260,21 @@ public class SocketIOManager : MonoBehaviour
         try
         {
             var initData = JsonConvert.DeserializeObject<InitData>(jsonData);
+            if (initData == null)
+            {
+                throw new JsonException("The game:init payload was empty.");
+            }
+
             var gameConfig = InitDataConverter.ConvertToGameConfig(initData);
             var playerData = InitDataConverter.ConvertToPlayerData(initData.player);
             var initialMatrix = GenerateRandomMatrix(gameConfig);
 
-            isInitialized = true;
-
             gameManager.OnInitDataReceived(gameConfig, playerData, initialMatrix);
+            isInitialized = gameManager.IsInitialized;
 
-            if (initData.jackpotData != null && initData.jackpotData.values != null && uiManager != null)
+            if (isInitialized && gameConfig.jackpotData?.values != null && uiManager != null)
             {
-                uiManager.UpdateJackpotDisplay(initData.jackpotData.values);
+                uiManager.UpdateJackpotDisplay(gameConfig.jackpotData.values);
             }
 
             if (RaycastBlocker) RaycastBlocker.SetActive(false);
@@ -440,14 +444,29 @@ public class SocketIOManager : MonoBehaviour
     {
         Debug.Log($"[SocketIO] Jackpot Sync received: {jsonData}");
 
+        if (string.IsNullOrWhiteSpace(jsonData))
+        {
+            Debug.LogWarning("[SocketIO] Jackpot Sync ignored because the payload was empty.");
+            return;
+        }
+
         try
         {
             var syncData = JsonConvert.DeserializeObject<JackpotSyncData>(jsonData);
 
-            if (syncData != null && syncData.values != null && uiManager != null)
+            if (syncData == null)
             {
-                uiManager.UpdateJackpotDisplay(syncData.values);
+                Debug.LogWarning("[SocketIO] Jackpot Sync ignored because the payload was null.");
+                return;
             }
+
+            if (syncData.values == null)
+            {
+                Debug.LogWarning("[SocketIO] Jackpot Sync ignored because it contained no values snapshot.");
+                return;
+            }
+
+            uiManager?.UpdateJackpotDisplay(syncData.values);
         }
         catch (Exception e)
         {

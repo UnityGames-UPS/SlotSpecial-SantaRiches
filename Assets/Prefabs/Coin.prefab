@@ -1,0 +1,128 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &2624668593061234027
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2014380773636451005}
+  - component: {fileID: 6288731066074265931}
+  - component: {fileID: 6791305511956903641}
+  - component: {fileID: 9082204371302702570}
+  m_Layer: 5
+  m_Name: Coin
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &2014380773636451005
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2624668593061234027}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 100, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!222 &6288731066074265931
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2624668593061234027}
+  m_CullTransparentMesh: 1
+--- !u!114 &6791305511956903641
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2624668593061234027}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
+  m_Material: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_RaycastTarget: 1
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 21300000, guid: 88a67990fc183224abce9b9b59d990cd, type: 3}
+  m_Type: 0
+  m_PreserveAspect: 1
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!114 &9082204371302702570
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2624668593061234027}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f14bdaf33bd202f4db9dbbe6a17fae01, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ImageAnimation
+  textureArray:
+  - {fileID: 21300000, guid: 02f044088004ff647ac6fd6d8e2f8b3e, type: 3}
+  - {fileID: 21300000, guid: d0f25a4c784a06e4da91b40aabff528c, type: 3}
+  - {fileID: 21300000, guid: c9e0f551dc35e2a43aa69c363bd33e02, type: 3}
+  - {fileID: 21300000, guid: 1d0cdbbb10d41aa49ac1fc3f2981bdc9, type: 3}
+  - {fileID: 21300000, guid: 245567bc61e34824795ae1d48ae8dc53, type: 3}
+  - {fileID: 21300000, guid: 9b55c10ac9db6034b8848271ca30bc99, type: 3}
+  - {fileID: 21300000, guid: 9e9ba7704b8394d41955c73182c0228e, type: 3}
+  - {fileID: 21300000, guid: 22ea4feef34d8c147b472d12d7f399bc, type: 3}
+  - {fileID: 21300000, guid: 402f384414ac36e449e48c649a0cd55f, type: 3}
+  - {fileID: 21300000, guid: 7b6cd62c2015f9641ba1c7059c157ccd, type: 3}
+  - {fileID: 21300000, guid: b9689d299ece5b145abdb570487f1a7b, type: 3}
+  - {fileID: 21300000, guid: 0e668261fed078a42b61b284a4b7e734, type: 3}
+  - {fileID: 21300000, guid: be41657ece396834aa11133c95183fba, type: 3}
+  - {fileID: 21300000, guid: c0aa5a736df77a849aa823c8a4d26e1b, type: 3}
+  - {fileID: 21300000, guid: 298d3c7db3dcb6e419851e7c39e8beb7, type: 3}
+  - {fileID: 21300000, guid: 9dc41021b6ffefd499f2cb8c39e1d70a, type: 3}
+  - {fileID: 21300000, guid: 3ccca49a00a002d468357a45db0107df, type: 3}
+  - {fileID: 21300000, guid: e3e9f023fe2089543b57fc13c28c3e8d, type: 3}
+  - {fileID: 21300000, guid: c74e8b5896df61c4798a15ef086398f9, type: 3}
+  - {fileID: 21300000, guid: 8adc4c69dd0ed154cb364d824ade5808, type: 3}
+  - {fileID: 21300000, guid: 23626889996903249afb2bd44bbe1497, type: 3}
+  - {fileID: 21300000, guid: 148bf5622b05b51498c58b117de288bb, type: 3}
+  - {fileID: 21300000, guid: 5e81a2d2a7c8a5449bf499113d608811, type: 3}
+  - {fileID: 21300000, guid: 530d30fb06278b74cbbc01f1bcae2658, type: 3}
+  - {fileID: 21300000, guid: db4540fd0329c0149ba847d224549a15, type: 3}
+  - {fileID: 21300000, guid: 5673f50f8bbca1c42a66f8384681e16a, type: 3}
+  - {fileID: 21300000, guid: 6ca85010e03a48e45adc2377c31f8298, type: 3}
+  - {fileID: 21300000, guid: 509e464c3e626894695107990f06c670, type: 3}
+  - {fileID: 21300000, guid: c61b70ef12394b24ea8a6a924c2bbdf0, type: 3}
+  - {fileID: 21300000, guid: 027f83cfe4409294e987191e3937bf5c, type: 3}
+  rendererDelegate: {fileID: 6791305511956903641}
+  useSharedMaterial: 1
+  doLoopAnimation: 1
+  StartOnAwake: 1
+  currentAnimationState: 0
+  AnimationSpeed: 15
+  delayBetweenLoop: 0

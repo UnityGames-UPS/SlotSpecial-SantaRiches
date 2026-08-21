@@ -22,6 +22,7 @@ public class UIManager : MonoBehaviour
     private const int DecimalPointSpriteIndex = 10;
     private const int CommaSpriteIndex = 11;
     private const float MinimumFreeSpinOfferFadeDuration = 2f;
+    private const float FullCircleRadians = Mathf.PI * 2f;
 
     [Header("Controllers")]
     [SerializeField] private GameManager gameManager;
@@ -33,9 +34,23 @@ public class UIManager : MonoBehaviour
     [Header("Portrait UI")]
     [SerializeField] private GameObject portraitUiRoot;
 
+    [Header("Portrait Jackpot Animation")]
+    [SerializeField, Min(0f)] private float portraitJackpotBobDistance = 10f;
+    [SerializeField, Min(0.01f)] private float portraitJackpotBobCycleDuration = 4f;
+
     [Header("Game Values")]
     [SerializeField] private TMP_Text balanceText;
     [SerializeField] private TMP_Text betAmountText;
+
+    [Header("Jackpot Values")]
+    [SerializeField] private TMP_Text miniJackpotText;
+    [SerializeField] private TMP_Text minorJackpotText;
+    [SerializeField] private TMP_Text majorJackpotText;
+    [SerializeField] private TMP_Text grandJackpotText;
+    [SerializeField] private TMP_Text portraitMiniJackpotText;
+    [SerializeField] private TMP_Text portraitMinorJackpotText;
+    [SerializeField] private TMP_Text portraitMajorJackpotText;
+    [SerializeField] private TMP_Text portraitGrandJackpotText;
 
     [Header("Primary Controls")]
     [SerializeField] private Button spinButton;
@@ -65,6 +80,24 @@ public class UIManager : MonoBehaviour
     [SerializeField] private TMP_Text freeSpinTotalWinText;
     [SerializeField] private StarFountain freeSpinStarFountain;
     [SerializeField, Min(0f)] private float freeSpinTotalWinCountDuration = 1.5f;
+
+    [Header("Extra Win Presentation")]
+    [SerializeField] private GameObject extraWinPanel;
+    [SerializeField] private Image extraWinTitleImage;
+    [SerializeField] private Sprite bigWinSprite;
+    [SerializeField] private Sprite superBigWinSprite;
+    [SerializeField] private Vector2 extraWinLandscapeSize = new Vector2(1920f, 1080f);
+    [SerializeField] private Vector2 extraWinPortraitSize = new Vector2(2000f, 3500f);
+    [SerializeField] private Vector2 bigWinTitleSize = new Vector2(700f, 700f);
+    [SerializeField] private Vector2 superBigWinTitleSize = new Vector2(1000f, 1000f);
+    [SerializeField] private TMP_Text extraWinAmountText;
+    [SerializeField] private StarFountain extraWinCoinFountain;
+    [SerializeField, Min(1f)] private float extraWinOvershootScale = 1.12f;
+    [SerializeField, Min(0f)] private float extraWinGrowDuration = 0.3f;
+    [SerializeField, Min(0f)] private float extraWinSettleDuration = 0.15f;
+    [SerializeField, Min(4f)] private float extraWinCountDuration = 4f;
+    [SerializeField, Min(0f)] private float extraWinFinalAmountHoldDuration = 0.5f;
+    [SerializeField, Min(0f)] private float extraWinExitDuration = 0.2f;
 
     [Header("Free Spin Offer Transition")]
     [SerializeField] private CanvasGroup freeSpinTransitionOverlay;
@@ -164,8 +197,11 @@ public class UIManager : MonoBehaviour
     private Button portraitMoreGamesButton;
     private Button portraitEnterFullscreenButton;
     private Button portraitExitFullscreenButton;
+    private RectTransform portraitJackpotTopPanel;
 
     private readonly List<EventTrigger> spinEventTriggers = new List<EventTrigger>();
+    private readonly List<RectTransform> portraitJackpotTargets = new List<RectTransform>();
+    private readonly List<Vector2> portraitJackpotStartingPositions = new List<Vector2>();
     private EventTrigger.Entry spinPointerDownEntry;
     private EventTrigger.Entry spinPointerUpEntry;
     private EventTrigger.Entry spinPointerExitEntry;
@@ -178,6 +214,8 @@ public class UIManager : MonoBehaviour
     private Tween freeSpinOfferTransitionTween;
     private Tween freeSpinCollectTransitionTween;
     private Tween freeSpinTotalWinTween;
+    private Tween portraitJackpotBobTween;
+    private Tween extraWinTween;
     private Vector3 freeSpinScaleTargetOriginalScale = Vector3.one;
     private bool freeSpinScaleTargetScaleCached;
     private RectTransform autoplayViewport;
@@ -197,16 +235,23 @@ public class UIManager : MonoBehaviour
     private bool isMobilePortrait;
     private bool lastSocketConnected;
     private bool lastPopupBlockingState;
+    private JackpotValues currentJackpotValues;
+    private bool extraWinPresentationActive;
+    private bool extraWinOriginalScaleCached;
+    private Vector3 extraWinOriginalScale = Vector3.one;
+    private Action extraWinCompletion;
 
     // Autoplay and hamburger panels are non-modal: their animations must not
     // disable the surrounding game controls. Sound and server/error popups
     // remain modal and continue to block background input.
     private bool IsBlockingInteraction =>
-        soundOpen || (popupManager != null && popupManager.IsBlockingPopupActive);
+        soundOpen || extraWinPresentationActive ||
+        (popupManager != null && popupManager.IsBlockingPopupActive);
 
     private void Awake()
     {
         ResolveReferences();
+        InitializeExtraWinOrientation();
         if (jsBridge != null)
         {
             jsBridge.RegisterVisibilityListener(gameObject.name);
@@ -219,6 +264,7 @@ public class UIManager : MonoBehaviour
     {
         RegisterListeners();
         OrientationChange.OnOrientationChanged += HandleOrientationChanged;
+        UpdatePortraitJackpotBobState();
         RefreshControls();
     }
 
@@ -305,12 +351,239 @@ public class UIManager : MonoBehaviour
 
     internal void UpdateJackpotDisplay(JackpotValues values)
     {
-        // Jackpot presentation is not part of the existing bottom-panel artwork.
+        if (values == null)
+        {
+            Debug.LogWarning("[UIManager] Ignored a null jackpot snapshot.");
+            return;
+        }
+
+        // Copy the full server snapshot so later DTO mutation cannot produce a
+        // partially updated display.
+        currentJackpotValues = new JackpotValues
+        {
+            miniJackpot = values.miniJackpot,
+            minorJackpot = values.minorJackpot,
+            majorJackpot = values.majorJackpot,
+            grandJackpot = values.grandJackpot
+        };
+
+        RefreshJackpotTexts();
+    }
+
+    private void RefreshJackpotTexts()
+    {
+        JackpotValues values = currentJackpotValues ?? gameManager?.GameConfig?.jackpotData?.values;
+        if (values == null)
+        {
+            return;
+        }
+
+        string mini = FormatJackpotValue(values.miniJackpot);
+        string minor = FormatJackpotValue(values.minorJackpot);
+        string major = FormatJackpotValue(values.majorJackpot);
+        string grand = FormatJackpotValue(values.grandJackpot);
+
+        SetJackpotText(miniJackpotText, mini);
+        SetJackpotText(minorJackpotText, minor);
+        SetJackpotText(majorJackpotText, major);
+        SetJackpotText(grandJackpotText, grand);
+        SetJackpotText(portraitMiniJackpotText, mini);
+        SetJackpotText(portraitMinorJackpotText, minor);
+        SetJackpotText(portraitMajorJackpotText, major);
+        SetJackpotText(portraitGrandJackpotText, grand);
+    }
+
+    private static string FormatJackpotValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        if (decimal.TryParse(
+                value,
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out decimal amount))
+        {
+            return "$" + amount.ToString("#,##0.00", CultureInfo.InvariantCulture);
+        }
+
+        return "$" + value.Trim();
+    }
+
+    private static void SetJackpotText(TMP_Text target, string value)
+    {
+        if (target != null)
+        {
+            target.text = value;
+        }
     }
 
     internal void UpdateBalanceDisplay()
     {
         RefreshControls();
+    }
+
+    internal bool ShowExtraWinPresentation(
+        WinPopupType popupType,
+        double winAmount,
+        int decimalPlaces,
+        Action onComplete)
+    {
+        if (popupType != WinPopupType.BigWin && popupType != WinPopupType.SuperBigWin)
+        {
+            return false;
+        }
+
+        if (extraWinPanel == null)
+        {
+            Debug.LogWarning("[UIManager] ExtraWin was not found; the win popup cannot be shown.");
+            return false;
+        }
+
+        ResetExtraWinPresentation(false);
+        CacheExtraWinOriginalScale();
+        extraWinCompletion = onComplete;
+        extraWinPresentationActive = true;
+
+        Sprite selectedSprite = popupType == WinPopupType.SuperBigWin
+            ? superBigWinSprite
+            : bigWinSprite;
+        if (extraWinTitleImage != null && selectedSprite != null)
+        {
+            extraWinTitleImage.sprite = selectedSprite;
+        }
+
+        if (extraWinTitleImage != null)
+        {
+            extraWinTitleImage.rectTransform.sizeDelta = popupType == WinPopupType.SuperBigWin
+                ? superBigWinTitleSize
+                : bigWinTitleSize;
+        }
+
+        int safeDecimalPlaces = decimalPlaces >= 0
+            ? Mathf.Clamp(decimalPlaces, 0, 28)
+            : 2;
+        double finalWinAmount = Math.Max(0d, winAmount);
+        if (extraWinAmountText != null)
+        {
+            extraWinAmountText.text = FormatSpriteAmount(
+                extraWinAmountText,
+                0d,
+                safeDecimalPlaces);
+        }
+
+        extraWinPanel.SetActive(true);
+        extraWinPanel.transform.SetAsLastSibling();
+        extraWinPanel.transform.localScale = Vector3.zero;
+
+        float countDuration = Mathf.Max(4f, extraWinCountDuration);
+        Sequence sequence = DOTween.Sequence().SetUpdate(true);
+        sequence.Append(
+            extraWinPanel.transform
+                .DOScale(extraWinOriginalScale * extraWinOvershootScale, extraWinGrowDuration)
+                .SetEase(Ease.OutCubic));
+        sequence.Append(
+            extraWinPanel.transform
+                .DOScale(extraWinOriginalScale, extraWinSettleDuration)
+                .SetEase(Ease.InOutSine));
+        sequence.AppendCallback(() =>
+        {
+            extraWinCoinFountain?.PlayCenterCoinShower(
+                countDuration + extraWinFinalAmountHoldDuration);
+        });
+
+        double displayedAmount = 0d;
+        Tween amountTween = DOTween.To(
+                () => displayedAmount,
+                value =>
+                {
+                    displayedAmount = value;
+                    if (extraWinAmountText != null)
+                    {
+                        extraWinAmountText.text = FormatSpriteAmount(
+                            extraWinAmountText,
+                            displayedAmount,
+                            safeDecimalPlaces);
+                    }
+                },
+                finalWinAmount,
+                countDuration)
+            .SetEase(Ease.OutCubic)
+            .OnComplete(() =>
+            {
+                if (extraWinAmountText != null)
+                {
+                    extraWinAmountText.text = FormatSpriteAmount(
+                        extraWinAmountText,
+                        finalWinAmount,
+                        safeDecimalPlaces);
+                }
+            });
+        sequence.Append(amountTween);
+        sequence.AppendInterval(extraWinFinalAmountHoldDuration);
+        sequence.Append(
+            extraWinPanel.transform
+                .DOScale(Vector3.zero, extraWinExitDuration)
+                .SetEase(Ease.InBack));
+        sequence.OnComplete(CompleteExtraWinPresentation);
+        extraWinTween = sequence;
+        RefreshControls();
+        return true;
+    }
+
+    internal void HideExtraWinPresentation()
+    {
+        ResetExtraWinPresentation(true);
+        RefreshControls();
+    }
+
+    private void CompleteExtraWinPresentation()
+    {
+        Action completion = extraWinCompletion;
+        ResetExtraWinPresentation(true);
+        RefreshControls();
+        completion?.Invoke();
+    }
+
+    private void ResetExtraWinPresentation(bool clearCompletion)
+    {
+        if (extraWinTween != null && extraWinTween.IsActive())
+        {
+            extraWinTween.Kill();
+        }
+
+        extraWinTween = null;
+        extraWinCoinFountain?.StopStarBurst();
+        extraWinPresentationActive = false;
+        if (extraWinPanel != null)
+        {
+            CacheExtraWinOriginalScale();
+            extraWinPanel.transform.localScale = extraWinOriginalScale;
+            extraWinPanel.SetActive(false);
+        }
+
+        if (clearCompletion)
+        {
+            extraWinCompletion = null;
+        }
+    }
+
+    private void CacheExtraWinOriginalScale()
+    {
+        if (extraWinOriginalScaleCached || extraWinPanel == null)
+        {
+            return;
+        }
+
+        extraWinOriginalScale = extraWinPanel.transform.localScale;
+        if (extraWinOriginalScale == Vector3.zero)
+        {
+            extraWinOriginalScale = Vector3.one;
+        }
+
+        extraWinOriginalScaleCached = true;
     }
 
     internal void ShowFreeSpinOffer(int totalSpins, int remainingSpins)
@@ -678,6 +951,7 @@ public class UIManager : MonoBehaviour
 
     internal void RefreshControls()
     {
+        RefreshJackpotTexts();
         if (gameManager == null) return;
 
         bool blocked = IsBlockingInteraction;
@@ -808,6 +1082,10 @@ public class UIManager : MonoBehaviour
 
         balanceText = balanceText != null ? balanceText : FindNamedComponent<TMP_Text>("BalanceAmount");
         betAmountText = betAmountText != null ? betAmountText : FindNamedComponent<TMP_Text>("BetAmount");
+        miniJackpotText = miniJackpotText != null ? miniJackpotText : FindNamedComponent<TMP_Text>("MiniText");
+        minorJackpotText = minorJackpotText != null ? minorJackpotText : FindNamedComponent<TMP_Text>("MinorText");
+        majorJackpotText = majorJackpotText != null ? majorJackpotText : FindNamedComponent<TMP_Text>("MajorText");
+        grandJackpotText = grandJackpotText != null ? grandJackpotText : FindNamedComponent<TMP_Text>("GrandText");
 
         spinButton = ResolveButton(spinButton, "Spin");
         stopButton = ResolveButton(stopButton, "Stop");
@@ -873,6 +1151,20 @@ public class UIManager : MonoBehaviour
             ? freeSpinStarFountain
             : FindSceneComponent<StarFountain>();
 
+        extraWinPanel = extraWinPanel != null ? extraWinPanel : FindSceneObject("ExtraWin");
+        extraWinTitleImage = ResolveChildComponent(
+            extraWinTitleImage,
+            extraWinPanel,
+            "Image");
+        extraWinAmountText = ResolveChildComponent(
+            extraWinAmountText,
+            extraWinPanel,
+            "Amount");
+        extraWinCoinFountain = ResolveChildComponent(
+            extraWinCoinFountain,
+            extraWinPanel,
+            "CoinFountain");
+
         autoplayPanel = autoplayPanel != null ? autoplayPanel : FindSceneObject("Autoplay Panel");
         menuPanel = menuPanel != null ? menuPanel : FindSceneObject("HamburgerMenu");
         hamburgerButton = ResolveButton(hamburgerButton, "HamburgerIcon");
@@ -900,12 +1192,12 @@ public class UIManager : MonoBehaviour
         musicToggle = ResolveChildComponent(musicToggle, soundPanel, "MusicToggle");
         sfxToggle = ResolveChildComponent(sfxToggle, soundPanel, "SfxToggle", "SFXToggle");
 
-        auto10Button = ResolveChildButton(null, autoplayPanel, "10");
-        auto50Button = ResolveChildButton(null, autoplayPanel, "50");
-        auto100Button = ResolveChildButton(null, autoplayPanel, "100");
-        auto200Button = ResolveChildButton(null, autoplayPanel, "200");
-        auto500Button = ResolveChildButton(null, autoplayPanel, "500");
-        autoInfinityButton = ResolveChildButton(null, autoplayPanel, "Infinity");
+        auto10Button = ResolveChildButton(auto10Button, autoplayPanel, "10");
+        auto50Button = ResolveChildButton(auto50Button, autoplayPanel, "50");
+        auto100Button = ResolveChildButton(auto100Button, autoplayPanel, "100");
+        auto200Button = ResolveChildButton(auto200Button, autoplayPanel, "200");
+        auto500Button = ResolveChildButton(auto500Button, autoplayPanel, "500");
+        autoInfinityButton = ResolveChildButton(autoInfinityButton, autoplayPanel, "Infinity");
 
         ResolvePortraitReferences();
 
@@ -924,6 +1216,22 @@ public class UIManager : MonoBehaviour
 
         portraitBalanceText = ResolveChildComponent(portraitBalanceText, portraitUiRoot, "BalanceAmount");
         portraitBetAmountText = ResolveChildComponent(portraitBetAmountText, portraitUiRoot, "BetAmount");
+        portraitMiniJackpotText = ResolveChildComponent(
+            portraitMiniJackpotText,
+            portraitUiRoot,
+            "MiniAmount");
+        portraitMinorJackpotText = ResolveChildComponent(
+            portraitMinorJackpotText,
+            portraitUiRoot,
+            "MinorAmount");
+        portraitMajorJackpotText = ResolveChildComponent(
+            portraitMajorJackpotText,
+            portraitUiRoot,
+            "MajorAmount");
+        portraitGrandJackpotText = ResolveChildComponent(
+            portraitGrandJackpotText,
+            portraitUiRoot,
+            "GrandAmount");
         portraitSpinButton = ResolveChildButton(portraitSpinButton, portraitUiRoot, "Spin");
         portraitStopButton = ResolveChildButton(portraitStopButton, portraitUiRoot, "Stop");
         portraitAutoplayStopButton = ResolveChildButton(
@@ -1000,6 +1308,10 @@ public class UIManager : MonoBehaviour
             portraitExitFullscreenButton,
             portraitUiRoot,
             "SmallScreen");
+        GameObject portraitTopPanel = FindChildObject(portraitUiRoot, "TopPanel");
+        portraitJackpotTopPanel = portraitTopPanel != null
+            ? portraitTopPanel.GetComponent<RectTransform>()
+            : null;
     }
 
     private void PreparePanels()
@@ -1054,6 +1366,8 @@ public class UIManager : MonoBehaviour
         {
             freeSpinTotalWinText.text = FormatSpriteAmount(freeSpinTotalWinText, 0d, 0);
         }
+        CacheExtraWinOriginalScale();
+        ResetExtraWinPresentation(true);
         StopFreeSpinStarFountain();
         HideFreeSpinTransitionOverlay();
         SetVisible(bottomFreeSpinStartButton, false);
@@ -1285,12 +1599,7 @@ public class UIManager : MonoBehaviour
         Bind(normalSpeedButton, HandleSpeedClick);
         Bind(fastSpeedButton, HandleSpeedClick);
         Bind(skipSpeedButton, HandleSpeedClick);
-        Bind(auto10Button, HandleAuto10);
-        Bind(auto50Button, HandleAuto50);
-        Bind(auto100Button, HandleAuto100);
-        Bind(auto200Button, HandleAuto200);
-        Bind(auto500Button, HandleAuto500);
-        Bind(autoInfinityButton, HandleAutoInfinity);
+        BindAutoplayButtons();
         Bind(hamburgerButton, OpenMenu);
         Bind(menuCloseButton, CloseMenu);
         Bind(infoButton, OpenInfo);
@@ -1313,12 +1622,6 @@ public class UIManager : MonoBehaviour
         Bind(portraitNormalSpeedButton, HandleSpeedClick);
         Bind(portraitFastSpeedButton, HandleSpeedClick);
         Bind(portraitSkipSpeedButton, HandleSpeedClick);
-        Bind(portraitAuto10Button, HandleAuto10);
-        Bind(portraitAuto50Button, HandleAuto50);
-        Bind(portraitAuto100Button, HandleAuto100);
-        Bind(portraitAuto200Button, HandleAuto200);
-        Bind(portraitAuto500Button, HandleAuto500);
-        Bind(portraitAutoInfinityButton, HandleAutoInfinity);
         Bind(portraitHamburgerButton, OpenMenu);
         Bind(portraitMenuCloseButton, CloseMenu);
         Bind(portraitInfoButton, OpenInfo);
@@ -1367,12 +1670,7 @@ public class UIManager : MonoBehaviour
         Unbind(normalSpeedButton, HandleSpeedClick);
         Unbind(fastSpeedButton, HandleSpeedClick);
         Unbind(skipSpeedButton, HandleSpeedClick);
-        Unbind(auto10Button, HandleAuto10);
-        Unbind(auto50Button, HandleAuto50);
-        Unbind(auto100Button, HandleAuto100);
-        Unbind(auto200Button, HandleAuto200);
-        Unbind(auto500Button, HandleAuto500);
-        Unbind(autoInfinityButton, HandleAutoInfinity);
+        UnbindAutoplayButtons();
         Unbind(hamburgerButton, OpenMenu);
         Unbind(menuCloseButton, CloseMenu);
         Unbind(infoButton, OpenInfo);
@@ -1395,12 +1693,6 @@ public class UIManager : MonoBehaviour
         Unbind(portraitNormalSpeedButton, HandleSpeedClick);
         Unbind(portraitFastSpeedButton, HandleSpeedClick);
         Unbind(portraitSkipSpeedButton, HandleSpeedClick);
-        Unbind(portraitAuto10Button, HandleAuto10);
-        Unbind(portraitAuto50Button, HandleAuto50);
-        Unbind(portraitAuto100Button, HandleAuto100);
-        Unbind(portraitAuto200Button, HandleAuto200);
-        Unbind(portraitAuto500Button, HandleAuto500);
-        Unbind(portraitAutoInfinityButton, HandleAutoInfinity);
         Unbind(portraitHamburgerButton, OpenMenu);
         Unbind(portraitMenuCloseButton, CloseMenu);
         Unbind(portraitInfoButton, OpenInfo);
@@ -1428,6 +1720,59 @@ public class UIManager : MonoBehaviour
             popupManager.BlockingStateChanged -= RefreshControls;
             popupManager.ExitConfirmed -= HandleExitConfirmed;
         }
+    }
+
+    private void BindAutoplayButtons()
+    {
+        ResolveAutoplayButtonReferences();
+        Rebind(auto10Button, HandleAuto10);
+        Rebind(auto50Button, HandleAuto50);
+        Rebind(auto100Button, HandleAuto100);
+        Rebind(auto200Button, HandleAuto200);
+        Rebind(auto500Button, HandleAuto500);
+        Rebind(autoInfinityButton, HandleAutoInfinity);
+        Rebind(portraitAuto10Button, HandleAuto10);
+        Rebind(portraitAuto50Button, HandleAuto50);
+        Rebind(portraitAuto100Button, HandleAuto100);
+        Rebind(portraitAuto200Button, HandleAuto200);
+        Rebind(portraitAuto500Button, HandleAuto500);
+        Rebind(portraitAutoInfinityButton, HandleAutoInfinity);
+    }
+
+    private void UnbindAutoplayButtons()
+    {
+        Unbind(auto10Button, HandleAuto10);
+        Unbind(auto50Button, HandleAuto50);
+        Unbind(auto100Button, HandleAuto100);
+        Unbind(auto200Button, HandleAuto200);
+        Unbind(auto500Button, HandleAuto500);
+        Unbind(autoInfinityButton, HandleAutoInfinity);
+        Unbind(portraitAuto10Button, HandleAuto10);
+        Unbind(portraitAuto50Button, HandleAuto50);
+        Unbind(portraitAuto100Button, HandleAuto100);
+        Unbind(portraitAuto200Button, HandleAuto200);
+        Unbind(portraitAuto500Button, HandleAuto500);
+        Unbind(portraitAutoInfinityButton, HandleAutoInfinity);
+    }
+
+    private void ResolveAutoplayButtonReferences()
+    {
+        auto10Button = ResolveChildButton(auto10Button, autoplayPanel, "10");
+        auto50Button = ResolveChildButton(auto50Button, autoplayPanel, "50");
+        auto100Button = ResolveChildButton(auto100Button, autoplayPanel, "100");
+        auto200Button = ResolveChildButton(auto200Button, autoplayPanel, "200");
+        auto500Button = ResolveChildButton(auto500Button, autoplayPanel, "500");
+        autoInfinityButton = ResolveChildButton(autoInfinityButton, autoplayPanel, "Infinity");
+        portraitAuto10Button = ResolveChildButton(portraitAuto10Button, portraitAutoplayPanel, "10");
+        portraitAuto50Button = ResolveChildButton(portraitAuto50Button, portraitAutoplayPanel, "50");
+        portraitAuto100Button = ResolveChildButton(portraitAuto100Button, portraitAutoplayPanel, "100");
+        portraitAuto200Button = ResolveChildButton(portraitAuto200Button, portraitAutoplayPanel, "200");
+        portraitAuto500Button = ResolveChildButton(portraitAuto500Button, portraitAutoplayPanel, "500");
+        portraitAutoInfinityButton = ResolveChildButton(
+            portraitAutoInfinityButton,
+            portraitAutoplayPanel,
+            "Infinite",
+            "Infinity");
     }
 
     private void HandleSpinPointerDown(BaseEventData eventData)
@@ -1531,8 +1876,23 @@ public class UIManager : MonoBehaviour
     private void SelectAutoplay(int count)
     {
         if (IsBlockingInteraction || gameManager == null) return;
+        if (!gameManager.StartAutoSpin(count))
+        {
+            string reason = gameManager.GetAutoplayStartBlockReason(count);
+            Debug.LogWarning(
+                $"[UIManager] Autoplay selection {FormatAutoplayCount(count)} did not start: " +
+                (string.IsNullOrEmpty(reason) ? "the first autoplay round could not begin." : reason));
+            RefreshControls();
+            return;
+        }
+
         HideAutoplayPanel();
-        if (gameManager.StartAutoSpin(count)) audioManager?.PlaySpinClick();
+        audioManager?.PlaySpinClick();
+    }
+
+    private static string FormatAutoplayCount(int count)
+    {
+        return count < 0 ? "Infinity" : count.ToString();
     }
 
     private void ShowAutoplayPanel()
@@ -1930,9 +2290,34 @@ public class UIManager : MonoBehaviour
     {
         bool countPanelWasVisible = IsFreeSpinCountPanelVisible();
         isMobilePortrait = mode == OrientationChange.OrientationMode.MobilePortrait;
+        ApplyExtraWinPanelSize();
+        if (listenersRegistered) BindAutoplayButtons();
+        UpdatePortraitJackpotBobState();
         SetFreeSpinCountPanelVisible(countPanelWasVisible);
         CancelSpinHold(true);
         RefreshControls();
+    }
+
+    private void InitializeExtraWinOrientation()
+    {
+        OrientationChange orientationChange = FindSceneComponent<OrientationChange>();
+        bool mobileDevice = orientationChange != null
+            ? orientationChange.IsMobileDevice()
+            : Application.isMobilePlatform;
+        isMobilePortrait = Screen.height > Screen.width && mobileDevice;
+        ApplyExtraWinPanelSize();
+    }
+
+    private void ApplyExtraWinPanelSize()
+    {
+        RectTransform extraWinRect = extraWinPanel != null
+            ? extraWinPanel.transform as RectTransform
+            : null;
+        if (extraWinRect == null) return;
+
+        extraWinRect.sizeDelta = isMobilePortrait
+            ? extraWinPortraitSize
+            : extraWinLandscapeSize;
     }
 
     private void HandleMusicVolume(float value) => audioManager?.SetMusicVolume(value);
@@ -2037,6 +2422,8 @@ public class UIManager : MonoBehaviour
 
     private void KillPanelTweens()
     {
+        ResetExtraWinPresentation(true);
+        StopPortraitJackpotBob(true);
         CancelFreeSpinTotalWinCount();
         CancelFreeSpinCollectTransition();
         CancelFreeSpinOfferTransition();
@@ -2050,6 +2437,98 @@ public class UIManager : MonoBehaviour
         menuTween = null;
         portraitMenuTween = null;
         soundTween = null;
+    }
+
+    private void UpdatePortraitJackpotBobState()
+    {
+        if (isMobilePortrait)
+        {
+            if (portraitJackpotBobTween == null || !portraitJackpotBobTween.IsActive())
+            {
+                StartPortraitJackpotBob();
+            }
+        }
+        else
+        {
+            StopPortraitJackpotBob(true);
+        }
+    }
+
+    private void StartPortraitJackpotBob()
+    {
+        StopPortraitJackpotBob(true);
+
+        if (portraitJackpotTopPanel == null || portraitJackpotBobDistance <= 0f)
+        {
+            return;
+        }
+
+        RectTransform[] descendants = portraitJackpotTopPanel.GetComponentsInChildren<RectTransform>(true);
+        foreach (RectTransform descendant in descendants)
+        {
+            if (descendant != portraitJackpotTopPanel && IsJackpotPanelName(descendant.name))
+            {
+                portraitJackpotTargets.Add(descendant);
+                portraitJackpotStartingPositions.Add(descendant.anchoredPosition);
+            }
+        }
+
+        if (portraitJackpotTargets.Count == 0)
+        {
+            return;
+        }
+
+        float phase = 0f;
+        portraitJackpotBobTween = DOTween.To(
+                () => phase,
+                value =>
+                {
+                    phase = value;
+                    ApplyPortraitJackpotVerticalOffset(Mathf.Sin(value) * portraitJackpotBobDistance);
+                },
+                FullCircleRadians,
+                Mathf.Max(0.01f, portraitJackpotBobCycleDuration))
+            .SetEase(Ease.Linear)
+            .SetLoops(-1, LoopType.Restart)
+            .SetTarget(this);
+    }
+
+    private static bool IsJackpotPanelName(string objectName)
+    {
+        return objectName == "Grand"
+            || objectName == "Major"
+            || objectName == "Minor"
+            || objectName == "Mini";
+    }
+
+    private void ApplyPortraitJackpotVerticalOffset(float offset)
+    {
+        for (int i = 0; i < portraitJackpotTargets.Count; i++)
+        {
+            RectTransform target = portraitJackpotTargets[i];
+            if (target != null)
+            {
+                target.anchoredPosition = portraitJackpotStartingPositions[i] + Vector2.up * offset;
+            }
+        }
+    }
+
+    private void StopPortraitJackpotBob(bool restorePositions)
+    {
+        if (portraitJackpotBobTween != null && portraitJackpotBobTween.IsActive())
+        {
+            portraitJackpotBobTween.Kill();
+        }
+
+        portraitJackpotBobTween = null;
+
+        if (restorePositions)
+        {
+            ApplyPortraitJackpotVerticalOffset(0f);
+        }
+
+        portraitJackpotTargets.Clear();
+        portraitJackpotStartingPositions.Clear();
     }
 
     private static void SetCanvasInteraction(CanvasGroup group, bool enabled)
@@ -2168,6 +2647,13 @@ public class UIManager : MonoBehaviour
     private static void Bind(Button button, UnityAction listener)
     {
         if (button != null) button.onClick.AddListener(listener);
+    }
+
+    private static void Rebind(Button button, UnityAction listener)
+    {
+        if (button == null) return;
+        button.onClick.RemoveListener(listener);
+        button.onClick.AddListener(listener);
     }
 
     private static void Unbind(Button button, UnityAction listener)

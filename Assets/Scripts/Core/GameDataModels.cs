@@ -19,8 +19,7 @@ public class InitData
 [Serializable]
 public class JackpotData
 {
-    public JackpotValues values;//jackpotfeature
-
+    public JackpotValues values;
 }
 
 [Serializable]
@@ -46,6 +45,7 @@ public class ServerGameData
     public List<double> bets;
     public double creditDivisor;
     public int totalLines;
+    public JackpotData jackpotData;
 }
 
 [Serializable]
@@ -415,6 +415,7 @@ public class GameConfig
     public int minWinMultiplier = 10;
     public int initialFreeSpins = 12;
     public ExtraSpinsData extraSpinsData; // Keep to avoid compilation error in UI
+    public JackpotData jackpotData;
 
 }
 
@@ -635,8 +636,9 @@ public enum SpinSpeed
 
 public enum WinPopupType
 {
-    RegularWin,         // Normal credit win (multiplier < 500x)
-    BigWin,             // Big win (multiplier >= 500x)
+    RegularWin,         // Normal credit win (multiplier below 5x)
+    BigWin,             // Big win (multiplier from 5x to below 10x)
+    SuperBigWin,        // Super Big Win (multiplier 10x or greater)
     FreeSpinTrigger,
     FreeSpinComplete    // All free spins completed
 }
@@ -663,7 +665,8 @@ public static class InitDataConverter
             creditDivisor = serverData.gameData.creditDivisor > 0
                 ? serverData.gameData.creditDivisor
                 : Math.Max(1, serverData.gameData.totalLines),
-            symbols = new List<SymbolInfo>()
+            symbols = new List<SymbolInfo>(),
+            jackpotData = NormalizeJackpotData(serverData)
         };
 
         foreach (var serverSymbol in serverData.uiData.paylines.symbols)
@@ -743,6 +746,25 @@ public static class InitDataConverter
         }
 
         return config;
+    }
+
+    /// <summary>
+    /// Supports both jackpot payload locations used by game:init. The existing
+    /// top-level contract remains authoritative when both locations are sent.
+    /// </summary>
+    internal static JackpotData NormalizeJackpotData(InitData serverData)
+    {
+        if (serverData == null)
+        {
+            return null;
+        }
+
+        if (serverData.jackpotData?.values != null)
+        {
+            return serverData.jackpotData;
+        }
+
+        return serverData.gameData?.jackpotData;
     }
 
     internal static PlayerData ConvertToPlayerData(ServerPlayer serverPlayer, int defaultBetIndex = 0)
