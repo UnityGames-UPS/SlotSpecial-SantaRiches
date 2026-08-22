@@ -32,9 +32,11 @@ public class SocketIOManager : MonoBehaviour
 
     internal bool isConnected;
     internal bool isInitialized;
-    internal bool isExiting;   // True when CloseSocket is called intentionally (exit button)
+    internal bool isExiting;   // True after an intentional CloseGame request.
     private bool isDestroyed;  // True when scene is unloading or application is quitting
     private bool socketSetupStarted;
+    private bool exitMessageSent;
+    private Coroutine exitRoutine;
 
     private bool hasFocus = true;
     private float focusLostTime = 0f;
@@ -49,6 +51,7 @@ public class SocketIOManager : MonoBehaviour
     private const int MAX_MISSED_PONGS = 5;
     private const float PING_INTERVAL = 2f;
     private const float PONG_TIMEOUT = 5f;
+    private const float EXIT_CLEANUP_DELAY = 1f;
 
     #region Initialization
 
@@ -59,6 +62,15 @@ public class SocketIOManager : MonoBehaviour
         isExiting = false;
         isDestroyed = false;
         socketSetupStarted = false;
+        exitMessageSent = false;
+        RaycastBlocker = RaycastBlocker != null
+            ? RaycastBlocker
+            : FindSceneObject("RaycastBlocker", "Raycast Blocker", "BlackScreen");
+        if (RaycastBlocker == null)
+        {
+            Debug.LogWarning(
+                "[SocketIO] No full-screen raycast blocker was assigned or found in the active scene.");
+        }
     }
 
     private void Start()
@@ -117,11 +129,18 @@ public class SocketIOManager : MonoBehaviour
         // Defensive: tear down any prior manager before building a new one
         if (socketManager != null)
         {
-            try { socketManager.Close(); } catch { }
+            try
+            {
+                socketManager.Close();
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[SocketIO] Previous socket cleanup failed: {exception.Message}");
+            }
             socketManager = null;
         }
 
-        if (RaycastBlocker) RaycastBlocker.SetActive(true);
+        SetRaycastBlocker(true);
 
         SocketOptions options = new SocketOptions
         {
@@ -164,6 +183,13 @@ public class SocketIOManager : MonoBehaviour
 
     private void OnSocketConnected(ConnectResponse resp)
     {
+        if (isExiting || isDestroyed)
+        {
+            Debug.LogWarning("[SocketIO] Ignoring a late connection callback during shutdown.");
+            isConnected = false;
+            return;
+        }
+
         Debug.Log("[SocketIO] Connected");
 
         isConnected = true;
@@ -195,66 +221,76 @@ public class SocketIOManager : MonoBehaviour
 
         if (isDestroyed)
         {
-            // Do not execute UI transitions or popup animations when destroying object / shutting down scene
             return;
         }
 
         if (isExiting)
         {
-            // Intentional exit — show loading popup (animation) instead of disconnect popup
-            if (popupManager != null)
+            if (popupManager != null && !popupManager.IsLoadingPopupActive())
             {
-                popupManager.ShowLoadingPopup(0f); // 0 = indefinite, JS will reload the page
+                popupManager.ShowLoadingPopup(0f);
             }
-            // Do NOT call gameManager.OnDisconnected for an intentional exit
+            return;
         }
-        else
-        {
-            // Unexpected disconnection — show the regular disconnection popup
-            if (popupManager != null)
-            {
-                popupManager.ShowDisconnectionPopup();
-            }
 
-            if (gameManager != null)
-            {
-                gameManager.OnDisconnected();
-            }
+        if (popupManager != null)
+        {
+            popupManager.ShowDisconnectionPopup();
+        }
+
+        if (gameManager != null)
+        {
+            gameManager.OnDisconnected();
         }
     }
 
     private void OnError(Error err)
     {
-        Debug.LogError($"[SocketIO] Error: {err.message}");
+        string message = err != null && !string.IsNullOrWhiteSpace(err.message)
+            ? err.message
+            : "Unknown socket error.";
 
-        if (!gameManager.IsInitialized)
+        if (isExiting || isDestroyed)
+        {
+            Debug.LogWarning($"[SocketIO] Ignoring socket error during intentional shutdown: {message}");
+            return;
+        }
+
+        Debug.LogError($"[SocketIO] Error: {message}");
+
+        if (gameManager != null && !gameManager.IsInitialized)
         {
             gameManager.MarkInitializationFailed();
         }
 
-        if (!string.IsNullOrEmpty(err.message) && err.message.Contains("Session expired"))
+        if (message.Contains("Session expired"))
         {
             Debug.LogWarning("Session expired detected");
             OnSocketDisconnected();
 #if UNITY_WEBGL && !UNITY_EDITOR
-        JSManager.SendCustomMessage("session_expired");
+            if (JSManager != null) JSManager.SendCustomMessage("session_expired");
 #endif
         }
         else
         {
-
             if (popupManager != null)
             {
-                popupManager.ShowServerError(err.message);
+                popupManager.ShowServerError(message);
             }
 #if UNITY_WEBGL && !UNITY_EDITOR
-        JSManager.SendCustomMessage("error");
+            if (JSManager != null) JSManager.SendCustomMessage("error");
 #endif
         }
     }
 
     private void OnInitReceived(string jsonData)
     {
+        if (isExiting || isDestroyed)
+        {
+            Debug.LogWarning("[SocketIO] Ignoring late initialization data during shutdown.");
+            return;
+        }
+
         Debug.Log($"[SocketIO] Init received: {jsonData}");
 
         try
@@ -277,7 +313,7 @@ public class SocketIOManager : MonoBehaviour
                 uiManager.UpdateJackpotDisplay(gameConfig.jackpotData.values);
             }
 
-            if (RaycastBlocker) RaycastBlocker.SetActive(false);
+            SetRaycastBlocker(false);
 
 #if UNITY_WEBGL && !UNITY_EDITOR
             if (JSManager != null)
@@ -478,7 +514,36 @@ public class SocketIOManager : MonoBehaviour
 
     internal void SetRaycastBlocker(bool active)
     {
-        if (RaycastBlocker != null) RaycastBlocker.SetActive(active);
+        if (RaycastBlocker == null)
+        {
+            RaycastBlocker = FindSceneObject("RaycastBlocker", "Raycast Blocker", "BlackScreen");
+        }
+
+        if (RaycastBlocker == null)
+        {
+            Debug.LogWarning($"[SocketIO] Unable to {(active ? "activate" : "disable")} the raycast blocker.");
+            return;
+        }
+
+        CanvasGroup blockerCanvasGroup = RaycastBlocker.GetComponent<CanvasGroup>();
+        if (active)
+        {
+            RaycastBlocker.SetActive(true);
+            RaycastBlocker.transform.SetAsLastSibling();
+            if (blockerCanvasGroup != null)
+            {
+                blockerCanvasGroup.interactable = true;
+                blockerCanvasGroup.blocksRaycasts = true;
+            }
+            return;
+        }
+
+        if (blockerCanvasGroup != null)
+        {
+            blockerCanvasGroup.interactable = false;
+            blockerCanvasGroup.blocksRaycasts = false;
+        }
+        RaycastBlocker.SetActive(false);
     }
 
     #region Focus / Background Timeout
@@ -494,12 +559,16 @@ public class SocketIOManager : MonoBehaviour
         }
         else
         {
-            if (focusCheckRoutine != null)
-            {
-                StopCoroutine(focusCheckRoutine);
-                focusCheckRoutine = null;
-            }
+            StopFocusCheckRoutine();
         }
+    }
+
+    private void StopFocusCheckRoutine()
+    {
+        if (focusCheckRoutine == null) return;
+
+        StopCoroutine(focusCheckRoutine);
+        focusCheckRoutine = null;
     }
 
     private IEnumerator FocusTimeoutCheck()
@@ -651,44 +720,122 @@ public class SocketIOManager : MonoBehaviour
 
     #region Cleanup
 
+    internal void CloseGame()
+    {
+        if (isDestroyed)
+        {
+            Debug.LogWarning("[SocketIO] Exit was ignored because the socket manager is being destroyed.");
+            return;
+        }
+
+        if (isExiting || exitRoutine != null || exitMessageSent)
+        {
+            Debug.LogWarning("[SocketIO] Duplicate exit request ignored.");
+            return;
+        }
+
+        isExiting = true;
+        SetRaycastBlocker(true);
+        exitRoutine = StartCoroutine(CloseGameRoutine());
+    }
+
+    // Retained for compatibility with any scene event or older caller.
     internal void CloseSocket()
     {
-        if (isDestroyed) return;
+        CloseGame();
+    }
 
-        // Mark as intentional exit BEFORE closing so OnSocketDisconnected shows
-        // the loading popup (with its animation) instead of the disconnect popup.
-        isExiting = true;
-
-        if (RaycastBlocker) RaycastBlocker.SetActive(true);
-
+    private IEnumerator CloseGameRoutine()
+    {
+        StopFocusCheckRoutine();
         StopPingRoutine();
-
-        if (socketManager != null)
-        {
-            socketManager.Close();
-            socketManager = null;
-        }
-
+        waitingForPong = false;
+        missedPongs = 0;
         isConnected = false;
+        isInitialized = false;
 
-        // If the socket close does not fire OnSocketDisconnected (e.g. already disconnected),
-        // still show the loading popup so the exit transition always looks clean.
-        if (popupManager != null && !popupManager.IsLoadingPopupActive())
+        CloseSocketConnectionSafely("intentional exit");
+
+        if (popupManager != null)
         {
-            popupManager.ShowLoadingPopup(0f);
+            if (!popupManager.IsLoadingPopupActive())
+            {
+                popupManager.ShowLoadingPopup(0f);
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[SocketIO] PopupManager is missing during the exit transition.");
         }
 
-#if UNITY_WEBGL && !UNITY_EDITOR
-        if (JSManager != null)
+        yield return new WaitForSecondsRealtime(EXIT_CLEANUP_DELAY);
+
+        SendExitMessageOnce();
+        exitRoutine = null;
+    }
+
+    private void CloseSocketConnectionSafely(string context)
+    {
+        SocketManager managerToClose = socketManager;
+        Socket socketToClose = gameSocket;
+        socketManager = null;
+        gameSocket = null;
+
+        try
+        {
+            if (managerToClose != null)
+            {
+                // SocketManager.Close disconnects all namespaces, releases its
+                // transports, and clears its socket references.
+                managerToClose.Close();
+            }
+            else if (socketToClose != null)
+            {
+                socketToClose.Disconnect();
+            }
+            else
+            {
+                Debug.LogWarning($"[SocketIO] No active socket connection to close during {context}.");
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.LogError($"[SocketIO] Socket cleanup failed during {context}: {exception.Message}");
+        }
+        finally
+        {
+            isConnected = false;
+        }
+    }
+
+    private void SendExitMessageOnce()
+    {
+        if (exitMessageSent)
+        {
+            return;
+        }
+
+        exitMessageSent = true;
+        if (JSManager == null)
+        {
+            Debug.LogError("[SocketIO] Platform message 'OnExit' could not be sent because JSFunctCalls is missing.");
+            return;
+        }
+
+        try
         {
             JSManager.SendCustomMessage("OnExit");
         }
-#endif
+        catch (Exception exception)
+        {
+            Debug.LogError($"[SocketIO] Failed to send platform message 'OnExit': {exception.Message}");
+        }
     }
 
     private void OnDisable()
     {
         StopPingRoutine();
+        StopFocusCheckRoutine();
     }
 
     private void OnApplicationQuit()
@@ -700,13 +847,8 @@ public class SocketIOManager : MonoBehaviour
     {
         isDestroyed = true;
         StopPingRoutine();
-
-        if (socketManager != null)
-        {
-            socketManager.Close();
-            socketManager = null;
-        }
-        isConnected = false;
+        StopFocusCheckRoutine();
+        CloseSocketConnectionSafely("object destruction");
     }
 
     #endregion
@@ -746,6 +888,24 @@ public class SocketIOManager : MonoBehaviour
             matrix.Add(column);
         }
         return matrix;
+    }
+
+    private static GameObject FindSceneObject(params string[] names)
+    {
+        foreach (Transform candidate in Resources.FindObjectsOfTypeAll<Transform>())
+        {
+            if (candidate == null || !candidate.gameObject.scene.IsValid()) continue;
+
+            foreach (string objectName in names)
+            {
+                if (candidate.name == objectName)
+                {
+                    return candidate.gameObject;
+                }
+            }
+        }
+
+        return null;
     }
 }
 

@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 5325520641211771265}
   - component: {fileID: 5091319871111709959}
   - component: {fileID: 3064598138029718325}
+  - component: {fileID: 7724296913831633047}
   m_Layer: 5
   m_Name: WinBox
   m_TagString: Untagged
@@ -34,8 +35,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 300, y: 300}
+  m_AnchoredPosition: {x: 0, y: 11}
+  m_SizeDelta: {x: 350, y: 350}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &5091319871111709959
 CanvasRenderer:
@@ -75,6 +76,48 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
+--- !u!114 &7724296913831633047
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 134278476584226992}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f14bdaf33bd202f4db9dbbe6a17fae01, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ImageAnimation
+  textureArray:
+  - {fileID: 21300000, guid: fc32e284af206d547bd389daf1e3bbc7, type: 3}
+  - {fileID: 21300000, guid: 6639c3714b772e94ba596c3d88512428, type: 3}
+  - {fileID: 21300000, guid: 6311c42a85ebce94e827c0753f9548b9, type: 3}
+  - {fileID: 21300000, guid: 613a8daba78d486449e54045890a1c3e, type: 3}
+  - {fileID: 21300000, guid: f38444a394ff7134a8bc6e8ae002f348, type: 3}
+  - {fileID: 21300000, guid: 8a53141ff866b6d42aaf79bf63907a48, type: 3}
+  - {fileID: 21300000, guid: 5462006703f01de4d8b24ac7615ac287, type: 3}
+  - {fileID: 21300000, guid: 9b96c90631f9e0e4194b2f29d7aaa821, type: 3}
+  - {fileID: 21300000, guid: 1f4648fba93a4784fa38ea2ecc04d24f, type: 3}
+  - {fileID: 21300000, guid: 09bae1cea4b616f46ba64d81ed8008d2, type: 3}
+  - {fileID: 21300000, guid: 74c9662d814459d4fb6692749d646326, type: 3}
+  - {fileID: 21300000, guid: 4c60f67306db11a4794417a753e97f96, type: 3}
+  - {fileID: 21300000, guid: 9ea41d86e150a2e40a9a0b369f6c4b84, type: 3}
+  - {fileID: 21300000, guid: 60467f3b9f7048440bfd1a11c319414e, type: 3}
+  - {fileID: 21300000, guid: f1dc03503bef7f243bc92c9ec4593de6, type: 3}
+  - {fileID: 21300000, guid: 11cf9ac9cc871b04ab27bfc8ff6465ac, type: 3}
+  - {fileID: 21300000, guid: 01312a5c97fddd94fb2d9a4ef716501e, type: 3}
+  - {fileID: 21300000, guid: 110806970e8a1094099f9b1766be2b78, type: 3}
+  - {fileID: 21300000, guid: ac2e0e6d06b6f71458217e6d8a85a927, type: 3}
+  - {fileID: 21300000, guid: c42cfef1f0ea4f94f9cf42d45836fe0c, type: 3}
+  - {fileID: 21300000, guid: a5e1197b4cf30d240938a6911971b47b, type: 3}
+  - {fileID: 21300000, guid: b06d9b3e0dd2f704389886c72185662e, type: 3}
+  rendererDelegate: {fileID: 3064598138029718325}
+  useSharedMaterial: 1
+  doLoopAnimation: 1
+  StartOnAwake: 0
+  currentAnimationState: 0
+  AnimationSpeed: 22
+  delayBetweenLoop: 0
 --- !u!1 &3970913747164405074
 GameObject:
   m_ObjectHideFlags: 0
@@ -164,10 +207,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ImageAnimation
   textureArray: []
-  rendererDelegate: {fileID: 0}
+  rendererDelegate: {fileID: 3425242703119205040}
   useSharedMaterial: 1
   doLoopAnimation: 1
-  StartOnAwake: 1
+  StartOnAwake: 0
   currentAnimationState: 0
   AnimationSpeed: 5
   delayBetweenLoop: 0

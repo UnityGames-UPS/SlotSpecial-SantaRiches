@@ -110,8 +110,10 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField] private GameObject[] winLineObjects = Array.Empty<GameObject>();
 
     [Header("Win Boxes")]
-    [Tooltip("The existing Animations root containing five column groups and three WinBox rows per column, used for normal and free-spin wins.")]
+    [Tooltip("The shared parent containing the WinBox column groups, used for normal and free-spin wins.")]
     [SerializeField] private Transform freeSpinWinBoxesRoot;
+    [Tooltip("The five WinBox column containers in left-to-right reel order. Each column contains three symbol rows.")]
+    [SerializeField] private Transform[] winAnimationColumns = new Transform[DefaultReelCount];
     [SerializeField, Min(0.1f)] private float freeSpinWinBoxDuration = 3f;
 
     [Header("Win Animation Sprites")]
@@ -702,18 +704,32 @@ public class SlotBehaviour : MonoBehaviour
             return;
         }
 
-        List<Transform> columns = Enumerable.Range(0, freeSpinWinBoxesRoot.childCount)
-            .Select(freeSpinWinBoxesRoot.GetChild)
-            .OrderBy(column => column is RectTransform rect ? rect.anchoredPosition.x : column.localPosition.x)
-            .Take(DefaultReelCount)
+        List<Transform> columns = Enumerable.Range(0, DefaultReelCount)
+            .Select(index => winAnimationColumns != null && index < winAnimationColumns.Length
+                ? winAnimationColumns[index]
+                : null)
             .ToList();
-        int columnCount = columns.Count;
-        for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
+        if (columns.Any(column => column == null))
+        {
+            Debug.LogWarning(
+                "[SlotBehaviour] Assign all five Win Animation Columns in left-to-right reel order.",
+                this);
+        }
+
+        for (int columnIndex = 0; columnIndex < columns.Count; columnIndex++)
         {
             Transform column = columns[columnIndex];
             List<GameObject> columnBoxes = new List<GameObject>();
             List<WinningSymbolAnimationRuntime> columnAnimations =
                 new List<WinningSymbolAnimationRuntime>();
+            if (column == null)
+            {
+                freeSpinWinBoxes.Add(Enumerable.Repeat<GameObject>(null, DefaultRowCount).ToList());
+                winningSymbolAnimations.Add(
+                    Enumerable.Repeat<WinningSymbolAnimationRuntime>(null, DefaultRowCount).ToList());
+                continue;
+            }
+
             List<Transform> rows = Enumerable.Range(0, column.childCount)
                 .Select(column.GetChild)
                 .OrderByDescending(row => row is RectTransform rect ? rect.anchoredPosition.y : row.localPosition.y)
@@ -1895,6 +1911,7 @@ public class SlotBehaviour : MonoBehaviour
             if (winBox != null)
             {
                 winBox.SetActive(true);
+                RestartWinBoxAnimation(winBox);
                 showedAnyVisual = true;
             }
 
@@ -1905,6 +1922,21 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         freeSpinWinBoxesRoot.gameObject.SetActive(showedAnyVisual);
+    }
+
+    private static void RestartWinBoxAnimation(GameObject winBox)
+    {
+        ImageAnimation animation = winBox.GetComponent<ImageAnimation>();
+        if (animation == null ||
+            animation.rendererDelegate == null ||
+            animation.textureArray == null ||
+            animation.textureArray.Count == 0)
+        {
+            return;
+        }
+
+        animation.StopAnimation();
+        animation.StartAnimation();
     }
 
     private bool StartWinningSymbolAnimation(int columnIndex, int rowIndex)

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using DG.Tweening;
 using TMPro;
 using UnityEngine;
@@ -236,6 +237,8 @@ public class UIManager : MonoBehaviour
     private bool lastSocketConnected;
     private bool lastPopupBlockingState;
     private JackpotValues currentJackpotValues;
+    private GameConfig appliedInfoConfig;
+    private bool infoPageValuesApplied;
     private bool extraWinPresentationActive;
     private bool extraWinOriginalScaleCached;
     private Vector3 extraWinOriginalScale = Vector3.one;
@@ -274,6 +277,9 @@ public class UIManager : MonoBehaviour
         lastSocketConnected = gameManager != null && gameManager.IsSocketConnected;
         lastPopupBlockingState = popupManager != null && popupManager.IsBlockingPopupActive;
         SyncSoundControls();
+        ApplyInfoPageValues(gameManager != null && gameManager.IsInitialized
+            ? gameManager.GameConfig
+            : null);
         RefreshControls();
     }
 
@@ -1037,8 +1043,9 @@ public class UIManager : MonoBehaviour
         SetInteractable(portraitHamburgerButton, !blocked && !menuOpen);
         SetInteractable(menuCloseButton, !blocked && menuOpen);
         SetInteractable(portraitMenuCloseButton, !blocked && menuOpen);
-        SetInteractable(homeButton, !blocked && !autoplay && !freeSpinOffer && !freeSpinActive);
-        SetInteractable(portraitHomeButton, !blocked && !autoplay && !freeSpinOffer && !freeSpinActive);
+        bool allowExit = !blocked && !autoplay && !settlingAutoplay && !freeSpinOffer && !freeSpinActive;
+        SetInteractable(homeButton, allowExit);
+        SetInteractable(portraitHomeButton, allowExit);
         SetInteractable(moreGamesButton, !blocked && moreGamesEnabled && !freeSpinOffer && !freeSpinActive);
         SetInteractable(portraitMoreGamesButton, !blocked && moreGamesEnabled && !freeSpinOffer && !freeSpinActive);
         SetInteractable(enterFullscreenButton, !blocked);
@@ -1639,6 +1646,7 @@ public class UIManager : MonoBehaviour
 
         if (gameManager != null)
         {
+            gameManager.InitDataReceived += HandleInfoInitDataReceived;
             gameManager.StateChanged += RefreshControls;
             gameManager.InsufficientBalance += HandleInsufficientBalance;
             gameManager.SpinFailed += HandleSpinFailed;
@@ -1710,6 +1718,7 @@ public class UIManager : MonoBehaviour
 
         if (gameManager != null)
         {
+            gameManager.InitDataReceived -= HandleInfoInitDataReceived;
             gameManager.StateChanged -= RefreshControls;
             gameManager.InsufficientBalance -= HandleInsufficientBalance;
             gameManager.SpinFailed -= HandleSpinFailed;
@@ -2148,6 +2157,10 @@ public class UIManager : MonoBehaviour
             Debug.LogWarning("[UIManager] No Info page is assigned; the existing Info button remains a safe hook.");
             return;
         }
+
+        ApplyInfoPageValues(gameManager != null && gameManager.IsInitialized
+            ? gameManager.GameConfig
+            : null);
         OpenSimplePanel(infoPanel, guidePanel);
     }
 
@@ -2155,6 +2168,454 @@ public class UIManager : MonoBehaviour
     {
         if (infoPanel != null) infoPanel.SetActive(false);
         RefreshControls();
+    }
+
+    private void HandleInfoInitDataReceived(
+        GameConfig config,
+        PlayerData playerData,
+        List<List<int>> initialMatrix)
+    {
+        appliedInfoConfig = null;
+        infoPageValuesApplied = false;
+        ApplyInfoPageValues(config);
+    }
+
+    private void ApplyInfoPageValues(GameConfig config)
+    {
+        if (config == null || infoPanel == null)
+        {
+            return;
+        }
+
+        if (infoPageValuesApplied && ReferenceEquals(appliedInfoConfig, config))
+        {
+            return;
+        }
+
+        UpdateInfoLineCount(config.paylineCount);
+        UpdateInfoFeatureValues(config);
+
+        int updatedSymbols = 0;
+        if (config.symbols == null || config.symbols.Count == 0)
+        {
+            Debug.LogWarning("[UIManager] Init did not provide symbol paytable values; the Info page defaults were retained.");
+        }
+        else
+        {
+            foreach (SymbolInfo symbol in config.symbols)
+            {
+                if (TryUpdateInfoSymbolPaytable(symbol, config))
+                {
+                    updatedSymbols++;
+                }
+            }
+        }
+
+        appliedInfoConfig = config;
+        infoPageValuesApplied = true;
+        Debug.Log($"[UIManager] Updated {updatedSymbols} Info page symbol paytables from init data.");
+    }
+
+    private bool TryUpdateInfoSymbolPaytable(SymbolInfo symbol, GameConfig config)
+    {
+        if (symbol == null)
+        {
+            Debug.LogWarning("[UIManager] Ignored a null symbol while updating the Info page.");
+            return false;
+        }
+
+        if (symbol.multipliers == null || symbol.multipliers.Count == 0)
+        {
+            Debug.LogWarning($"[UIManager] Init symbol '{symbol.name}' has no payout values; its Info page defaults were retained.");
+            return false;
+        }
+
+        string sectionName = ResolveInfoSymbolSectionName(symbol, config);
+        if (string.IsNullOrEmpty(sectionName))
+        {
+            Debug.LogWarning($"[UIManager] Init symbol '{symbol.name}' could not be mapped to an Info page section.");
+            return false;
+        }
+
+        GameObject section = FindChildObject(infoPanel, sectionName);
+        if (section == null)
+        {
+            Debug.LogWarning($"[UIManager] Info page section '{sectionName}' was not found for init symbol '{symbol.name}'.");
+            return false;
+        }
+
+        TMP_Text[] sectionTexts = section.GetComponentsInChildren<TMP_Text>(true);
+        TMP_Text multiplierText = sectionTexts.FirstOrDefault(candidate =>
+            candidate != null &&
+            candidate.transform.parent == section.transform &&
+            candidate.name.StartsWith("Multiplier", StringComparison.OrdinalIgnoreCase));
+        if (multiplierText == null)
+        {
+            Debug.LogWarning($"[UIManager] Info page section '{sectionName}' has no multiplier text field.");
+            return false;
+        }
+
+        multiplierText.text = BuildInfoColumnText(
+            symbol.multipliers.Select(FormatInfoNumber));
+
+        TMP_Text matchCountText = sectionTexts.FirstOrDefault(candidate =>
+            candidate != null &&
+            candidate.transform.parent == section.transform &&
+            IsIntegerInfoColumn(candidate.text));
+        if (matchCountText == null)
+        {
+            Debug.LogWarning($"[UIManager] Info page section '{sectionName}' has no match-count text field.");
+            return true;
+        }
+
+        List<int> matchCounts = symbol.matchCounts != null &&
+            symbol.matchCounts.Count == symbol.multipliers.Count
+                ? symbol.matchCounts
+                : BuildFallbackMatchCounts(symbol, config.reelCount);
+        matchCountText.text = BuildInfoColumnText(
+            matchCounts.Select(value => value.ToString(CultureInfo.InvariantCulture)));
+        return true;
+    }
+
+    private static List<int> BuildFallbackMatchCounts(SymbolInfo symbol, int reelCount)
+    {
+        int payoutCount = symbol?.multipliers?.Count ?? 0;
+        int safeReelCount = Math.Max(1, reelCount);
+        int minMatch = symbol != null && symbol.minMatch > 0
+            ? Math.Min(symbol.minMatch, safeReelCount)
+            : Math.Max(1, safeReelCount - payoutCount + 1);
+        int highestMatch = Math.Min(safeReelCount, minMatch + payoutCount - 1);
+        var matchCounts = new List<int>();
+        for (int index = 0; index < payoutCount; index++)
+        {
+            matchCounts.Add(Math.Max(minMatch, highestMatch - index));
+        }
+
+        return matchCounts;
+    }
+
+    private static string ResolveInfoSymbolSectionName(SymbolInfo symbol, GameConfig config)
+    {
+        string normalizedName = NormalizeInfoSymbolName(symbol?.name);
+        switch (normalizedName)
+        {
+            case "santa":
+            case "santawild":
+            case "expandingwild":
+            case "expandingsantawild":
+                return "ExpandingWild";
+            case "gift":
+            case "giftbox":
+            case "giftwild":
+            case "present":
+            case "presentwild":
+                return "Wild";
+            case "scatter":
+            case "moon":
+                return "Scatter";
+            case "reindeer":
+            case "deer":
+                return "DeerSymbol";
+            case "bell":
+            case "bells":
+                return "BellSymbol";
+            case "stocking":
+            case "stockings":
+            case "sock":
+            case "socks":
+                return "SockSymbol";
+            case "candle":
+                return "CandleSymbol";
+            case "milkcookie":
+            case "milkcookies":
+            case "cookie":
+            case "cookies":
+            case "cup":
+                return "CupSymbol";
+            case "ace":
+            case "a":
+                return "AceSymbol";
+            case "king":
+            case "k":
+                return "KingSymbol";
+            case "queen":
+            case "q":
+                return "QueenSymbol";
+            case "jack":
+            case "j":
+                return "JackSymbol";
+            case "ten":
+            case "10":
+                return "TenSymbol";
+            case "wild":
+                if (config != null && symbol.id == config.giftWildSymbolId)
+                {
+                    return "Wild";
+                }
+
+                if (config != null && symbol.id == config.expandingWildSymbolId)
+                {
+                    return "ExpandingWild";
+                }
+
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    private static string NormalizeInfoSymbolName(string symbolName)
+    {
+        return string.IsNullOrWhiteSpace(symbolName)
+            ? string.Empty
+            : new string(symbolName
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToLowerInvariant)
+                .ToArray());
+    }
+
+    private static bool IsIntegerInfoColumn(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        string[] tokens = value.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+        return tokens.Length > 0 && tokens.All(token =>
+            int.TryParse(
+                token.Trim('\''),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out _));
+    }
+
+    private static string BuildInfoColumnText(IEnumerable<string> values)
+    {
+        return string.Join("\n\n    ", values);
+    }
+
+    private static string FormatInfoNumber(double value)
+    {
+        double rounded = Math.Round(value);
+        return Math.Abs(value - rounded) < 0.0000001d
+            ? rounded.ToString("0", CultureInfo.InvariantCulture)
+            : value.ToString("0.################", CultureInfo.InvariantCulture);
+    }
+
+    private void UpdateInfoLineCount(int paylineCount)
+    {
+        if (paylineCount <= 0 || infoPanel == null)
+        {
+            return;
+        }
+
+        string formattedCount = paylineCount.ToString(CultureInfo.InvariantCulture);
+        foreach (TMP_Text text in infoPanel.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text == null || string.IsNullOrEmpty(text.text))
+            {
+                continue;
+            }
+
+            text.text = Regex.Replace(
+                text.text,
+                @"\d+(?=\s+(?:LINES|WAYS\s+TO\s+WIN)\b)",
+                formattedCount,
+                RegexOptions.IgnoreCase);
+        }
+    }
+
+    private void UpdateInfoFeatureValues(GameConfig config)
+    {
+        Features features = config?.features;
+        if (features == null)
+        {
+            return;
+        }
+
+        int scatterTriggerCount = features.scatter != null
+            ? features.scatter.minTriggerCount
+            : 0;
+        ReplaceInfoScatterTriggerCount(
+            FindChildObject(infoPanel, "Scatter"),
+            scatterTriggerCount);
+
+        int freeGameTriggerCount = features.freeGames != null && features.freeGames.triggerCount > 0
+            ? features.freeGames.triggerCount
+            : scatterTriggerCount;
+        ReplaceInfoScatterTriggerCount(
+            FindChildObject(infoPanel, "FreeGames"),
+            freeGameTriggerCount);
+
+        UpdateInfoMultiplierWildValues(features.multiplierWilds);
+        UpdateInfoExpandingWildValues(features.expandingWild, config.reelCount);
+    }
+
+    private static void ReplaceInfoScatterTriggerCount(GameObject section, int triggerCount)
+    {
+        if (section == null || triggerCount <= 0)
+        {
+            return;
+        }
+
+        string formattedCount = triggerCount.ToString(CultureInfo.InvariantCulture);
+        foreach (TMP_Text text in section.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text == null || string.IsNullOrEmpty(text.text))
+            {
+                continue;
+            }
+
+            text.text = Regex.Replace(
+                text.text,
+                @"\d+(?=\s+or\s+more\s+Scatters?)",
+                formattedCount,
+                RegexOptions.IgnoreCase);
+        }
+    }
+
+    private void UpdateInfoMultiplierWildValues(MultiplierWilds multiplierWilds)
+    {
+        GiftWildCountMultiplier configuredValues = multiplierWilds?.giftWildCountMultiplier;
+        GameObject section = FindChildObject(infoPanel, "MultiplierWild");
+        if (configuredValues == null || section == null)
+        {
+            return;
+        }
+
+        int[] values = { configuredValues._1, configuredValues._2 };
+        int valueIndex = 0;
+        foreach (TMP_Text text in section.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text == null || string.IsNullOrEmpty(text.text) || valueIndex >= values.Length)
+            {
+                continue;
+            }
+
+            text.text = Regex.Replace(
+                text.text,
+                @"[xX]\s*\d+",
+                match =>
+                {
+                    if (valueIndex >= values.Length || values[valueIndex] <= 0)
+                    {
+                        valueIndex++;
+                        return match.Value;
+                    }
+
+                    char prefix = match.Value[0];
+                    return prefix + values[valueIndex++].ToString(CultureInfo.InvariantCulture);
+                });
+        }
+    }
+
+    private void UpdateInfoExpandingWildValues(ExpandingWild expandingWild, int reelCount)
+    {
+        if (expandingWild == null)
+        {
+            return;
+        }
+
+        List<int> allConfiguredReels = new List<int>();
+        if (expandingWild.baseGameReels != null)
+        {
+            allConfiguredReels.AddRange(expandingWild.baseGameReels);
+        }
+        if (expandingWild.freeGameReels != null)
+        {
+            allConfiguredReels.AddRange(expandingWild.freeGameReels);
+        }
+
+        bool zeroBasedReels = allConfiguredReels.Contains(0) ||
+            (allConfiguredReels.Count > 0 && !allConfiguredReels.Contains(Math.Max(1, reelCount)));
+        List<int> baseGameReels = NormalizeInfoReelNumbers(
+            expandingWild.baseGameReels,
+            reelCount,
+            zeroBasedReels);
+        int freeGameReelCount = NormalizeInfoReelNumbers(
+                expandingWild.freeGameReels,
+                reelCount,
+                zeroBasedReels)
+            .Count;
+
+        foreach (string sectionName in new[] { "ExpandingWild", "ExpandingSanta" })
+        {
+            GameObject section = FindChildObject(infoPanel, sectionName);
+            if (section == null)
+            {
+                continue;
+            }
+
+            foreach (TMP_Text text in section.GetComponentsInChildren<TMP_Text>(true))
+            {
+                if (text == null || string.IsNullOrEmpty(text.text))
+                {
+                    continue;
+                }
+
+                if (baseGameReels.Count > 0)
+                {
+                    text.text = Regex.Replace(
+                        text.text,
+                        @"reels\s+\d+(?:\s*(?:,|and)\s*\d+)+\s+only",
+                        "reels " + FormatInfoNumberList(baseGameReels) + " only",
+                        RegexOptions.IgnoreCase);
+                }
+
+                if (freeGameReelCount > 0)
+                {
+                    text.text = Regex.Replace(
+                        text.text,
+                        @"all\s+\d+\s+reels",
+                        "all " + freeGameReelCount.ToString(CultureInfo.InvariantCulture) + " reels",
+                        RegexOptions.IgnoreCase);
+                }
+            }
+        }
+    }
+
+    private static List<int> NormalizeInfoReelNumbers(
+        IEnumerable<int> configuredReels,
+        int reelCount,
+        bool zeroBased)
+    {
+        if (configuredReels == null)
+        {
+            return new List<int>();
+        }
+
+        int safeReelCount = Math.Max(1, reelCount);
+        return configuredReels
+            .Select(value => zeroBased ? value + 1 : value)
+            .Where(value => value >= 1 && value <= safeReelCount)
+            .Distinct()
+            .OrderBy(value => value)
+            .ToList();
+    }
+
+    private static string FormatInfoNumberList(IReadOnlyList<int> values)
+    {
+        if (values == null || values.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (values.Count == 1)
+        {
+            return values[0].ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (values.Count == 2)
+        {
+            return values[0].ToString(CultureInfo.InvariantCulture) +
+                " and " +
+                values[1].ToString(CultureInfo.InvariantCulture);
+        }
+
+        return string.Join(", ", values.Take(values.Count - 1)) +
+            " and " +
+            values[values.Count - 1].ToString(CultureInfo.InvariantCulture);
     }
 
     private void OpenGuide()
@@ -2234,9 +2695,20 @@ public class UIManager : MonoBehaviour
 
     private void HandleHome()
     {
-        if (IsBlockingInteraction || gameManager == null || gameManager.IsAutoplayActive) return;
+        if (IsBlockingInteraction || gameManager == null || gameManager.IsAutoplayActive ||
+            gameManager.IsAutoplayRoundSettling)
+        {
+            return;
+        }
+
+        if (popupManager == null)
+        {
+            Debug.LogError("[UIManager] Exit confirmation could not open because PopupManager is missing.");
+            return;
+        }
+
         CloseMenu(false);
-        popupManager?.ShowExitConfirmationPopup();
+        popupManager.ShowExitConfirmationPopup();
         RefreshControls();
     }
 

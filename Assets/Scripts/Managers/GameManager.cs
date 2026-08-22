@@ -90,6 +90,9 @@ public class GameManager : MonoBehaviour
     private Coroutine autoplayDelayRoutine;
     private Coroutine freeSpinRoutine;
     private int freeSpinTotal;
+    private bool freeSpinRetriggerPending;
+    private int pendingFreeSpinRetriggerTotal;
+    private int pendingFreeSpinRetriggerRemaining;
     private double freeSpinStartingBalance;
     private double freeSpinInitialServerTotalWin;
     private bool freeSpinBalanceDeferred;
@@ -219,28 +222,57 @@ public class GameManager : MonoBehaviour
         IsFreeSpinAwaitingStart = false;
         IsFreeSpinActive = true;
         IsFreeSpinAwaitingTake = false;
+        bool resumingAfterRetrigger = freeSpinRetriggerPending;
         if (!freeSpinBalanceDeferred)
         {
             freeSpinStartingBalance = gameData.DisplayedBalance;
             freeSpinBalanceDeferred = true;
         }
         CurrentState = GameState.FreeSpinMode;
-        slotBehaviour.BeginFreeSpinWinPresentation(
-            freeSpinInitialServerTotalWin,
-            lastCompletedResult?.winAmountDecimalPlaces ?? -1);
+        if (!resumingAfterRetrigger)
+        {
+            slotBehaviour.BeginFreeSpinWinPresentation(
+                freeSpinInitialServerTotalWin,
+                lastCompletedResult?.winAmountDecimalPlaces ?? -1);
+        }
         NotifyStateChanged();
+
+        int presentationTotal = resumingAfterRetrigger
+            ? pendingFreeSpinRetriggerTotal
+            : FreeSpinTotal;
+        int presentationRemaining = resumingAfterRetrigger
+            ? pendingFreeSpinRetriggerRemaining
+            : FreeSpinsRemaining;
+        Action onPanelHidden = resumingAfterRetrigger
+            ? CompleteFreeSpinRetriggerPresentation
+            : BeginFreeSpinStartReelTransition;
 
         if (uiManager != null)
         {
             uiManager.BeginFreeSpinPresentation(
-                FreeSpinTotal,
-                FreeSpinsRemaining,
-                BeginFreeSpinStartReelTransition);
+                presentationTotal,
+                presentationRemaining,
+                onPanelHidden);
             return true;
         }
 
-        BeginFreeSpinStartReelTransition();
+        onPanelHidden();
         return true;
+    }
+
+    private void CompleteFreeSpinRetriggerPresentation()
+    {
+        if (!IsFreeSpinActive || !freeSpinRetriggerPending)
+        {
+            return;
+        }
+
+        freeSpinTotal = pendingFreeSpinRetriggerTotal;
+        FreeSpinsRemaining = pendingFreeSpinRetriggerRemaining;
+        ClearPendingFreeSpinRetrigger();
+        uiManager?.UpdateFreeSpinCounter(FreeSpinTotal, FreeSpinsRemaining);
+        NotifyStateChanged();
+        BeginFreeSpinStartReelTransition();
     }
 
     private void BeginFreeSpinStartReelTransition()
@@ -467,7 +499,13 @@ public class GameManager : MonoBehaviour
     internal void ExitGame()
     {
         StopAutoSpin();
-        socketManager?.CloseSocket();
+        if (socketManager == null)
+        {
+            Debug.LogError("[GameManager] Exit could not continue because SocketIOManager is missing.");
+            return;
+        }
+
+        socketManager.CloseGame();
     }
 
     private bool TryStartRound(bool autoplayRound, bool freeSpinRound = false)
@@ -570,7 +608,14 @@ public class GameManager : MonoBehaviour
         TryStartExtraWinPresentation(result);
         if (IsFreeSpinActive)
         {
-            ApplyFreeSpinResultProgress(result);
+            if (ShouldOfferFreeSpinRetrigger(result))
+            {
+                QueueFreeSpinRetrigger(result);
+            }
+            else
+            {
+                ApplyFreeSpinResultProgress(result);
+            }
         }
         IsStopRequested = false;
         CurrentState = IsResultPresentationActive ? GameState.ShowingWin : GameState.Idle;
@@ -602,6 +647,12 @@ public class GameManager : MonoBehaviour
         {
             CurrentState = GameState.FreeSpinMode;
             NotifyStateChanged();
+
+            if (freeSpinRetriggerPending)
+            {
+                OfferFreeSpinRetrigger();
+                return;
+            }
 
             if (FreeSpinsRemaining <= 0)
             {
@@ -745,6 +796,13 @@ public class GameManager : MonoBehaviour
             result.freeSpinData.spinsAwarded > 0 && !result.isFreeSpinResult;
     }
 
+    private static bool ShouldOfferFreeSpinRetrigger(SpinResult result)
+    {
+        return result?.freeSpinData != null && result.freeSpinData.isTriggered &&
+            result.freeSpinData.isRetrigger && result.freeSpinData.spinsAwarded > 0 &&
+            result.isFreeSpinResult;
+    }
+
     private void OfferFreeSpins(SpinResult triggerResult)
     {
         int awardedSpins = Mathf.Max(0, triggerResult?.freeSpinData?.spinsAwarded ?? 0);
@@ -777,18 +835,63 @@ public class GameManager : MonoBehaviour
     {
         if (result == null) return;
 
+        CalculateFreeSpinResultProgress(result, out int totalSpins, out int remainingSpins);
+        freeSpinTotal = totalSpins;
+        FreeSpinsRemaining = remainingSpins;
+        uiManager?.UpdateFreeSpinCounter(FreeSpinTotal, FreeSpinsRemaining);
+    }
+
+    private void QueueFreeSpinRetrigger(SpinResult result)
+    {
+        CalculateFreeSpinResultProgress(
+            result,
+            out pendingFreeSpinRetriggerTotal,
+            out pendingFreeSpinRetriggerRemaining);
+        freeSpinRetriggerPending = true;
+    }
+
+    private void OfferFreeSpinRetrigger()
+    {
+        IsFreeSpinAwaitingStart = true;
+        IsFreeSpinActive = false;
+        IsFreeSpinAwaitingTake = false;
+        CurrentState = GameState.FreeSpinMode;
+        uiManager?.ShowFreeSpinOffer(
+            pendingFreeSpinRetriggerTotal,
+            pendingFreeSpinRetriggerRemaining);
+        NotifyStateChanged();
+    }
+
+    private void CalculateFreeSpinResultProgress(
+        SpinResult result,
+        out int totalSpins,
+        out int remainingSpins)
+    {
+        totalSpins = freeSpinTotal;
+        remainingSpins = FreeSpinsRemaining;
+        if (result == null)
+        {
+            return;
+        }
+
         int serverTotal = Mathf.Max(0, result.serverTotalSpins);
         if (serverTotal > 0)
         {
-            freeSpinTotal = serverTotal;
+            totalSpins = serverTotal;
         }
         else if (result.freeSpinData != null && result.freeSpinData.isRetrigger)
         {
-            freeSpinTotal += Mathf.Max(0, result.freeSpinData.spinsAwarded);
+            totalSpins += Mathf.Max(0, result.freeSpinData.spinsAwarded);
         }
 
-        FreeSpinsRemaining = Mathf.Max(0, result.serverSpinsRemaining);
-        uiManager?.UpdateFreeSpinCounter(FreeSpinTotal, FreeSpinsRemaining);
+        remainingSpins = Mathf.Max(0, result.serverSpinsRemaining);
+    }
+
+    private void ClearPendingFreeSpinRetrigger()
+    {
+        freeSpinRetriggerPending = false;
+        pendingFreeSpinRetriggerTotal = 0;
+        pendingFreeSpinRetriggerRemaining = 0;
     }
 
     private void StartFreeSpinDelay(float delay)
@@ -849,6 +952,7 @@ public class GameManager : MonoBehaviour
         IsFreeSpinAwaitingTake = false;
         freeSpinRoundInProgress = false;
         freeSpinTotal = 0;
+        ClearPendingFreeSpinRetrigger();
         freeSpinStartingBalance = 0d;
         freeSpinInitialServerTotalWin = 0d;
         freeSpinBalanceDeferred = false;

@@ -399,6 +399,7 @@ public class GameConfig
     public List<List<int>> paylines;
     public List<double> availableBets;
     public List<SymbolInfo> symbols;
+    public Features features;
 
     // Wild configuration
     public int wildSymbolId;
@@ -425,6 +426,7 @@ public class SymbolInfo
     public int id;
     public string name;
     public List<double> multipliers;
+    public List<int> matchCounts;
     public bool isWild;
     public bool isScatter;
     public int wildMultiplier = 1;
@@ -666,6 +668,7 @@ public static class InitDataConverter
                 ? serverData.gameData.creditDivisor
                 : Math.Max(1, serverData.gameData.totalLines),
             symbols = new List<SymbolInfo>(),
+            features = serverData.features,
             jackpotData = NormalizeJackpotData(serverData)
         };
 
@@ -676,19 +679,16 @@ public static class InitDataConverter
                 id = serverSymbol.id,
                 name = serverSymbol.name,
                 multipliers = new List<double>(),
+                matchCounts = new List<int>(),
                 isWild = !string.IsNullOrEmpty(serverSymbol.name) && serverSymbol.name.ToLowerInvariant().Contains("wild"),
                 isScatter = !string.IsNullOrEmpty(serverSymbol.name) && serverSymbol.name.ToLowerInvariant().Contains("scatter"),
                 minMatch = serverSymbol.minMatch
             };
 
-            // Store raw payout values for info page
-            if (serverSymbol.payout != null)
-            {
-                for (int i = serverSymbol.payout.Count - 1; i >= 0; i--)
-                {
-                    symbolInfo.multipliers.Add(serverSymbol.payout[i]);
-                }
-            }
+            List<double> payoutValues = serverSymbol.payout != null && serverSymbol.payout.Count > 0
+                ? serverSymbol.payout
+                : serverSymbol.multiplier;
+            PopulateSymbolPaytable(symbolInfo, payoutValues, config.reelCount);
             config.symbols.Add(symbolInfo);
 
             if (symbolInfo.isWild)
@@ -746,6 +746,91 @@ public static class InitDataConverter
         }
 
         return config;
+    }
+
+    private static void PopulateSymbolPaytable(
+        SymbolInfo symbol,
+        List<double> sourceValues,
+        int reelCount)
+    {
+        if (symbol == null || sourceValues == null || sourceValues.Count == 0)
+        {
+            return;
+        }
+
+        int safeReelCount = Math.Max(1, reelCount);
+        int minMatch = symbol.minMatch > 0
+            ? Math.Min(symbol.minMatch, safeReelCount)
+            : InferMinimumMatch(sourceValues, safeReelCount);
+        symbol.minMatch = minMatch;
+
+        int expectedPayoutCount = safeReelCount - minMatch + 1;
+        int firstSourceIndex;
+
+        // Support all three init formats seen across game servers:
+        // [3x, 4x, 5x], [1x, 2x, 3x, 4x, 5x], and an index-aligned
+        // array where element zero is unused.
+        if (sourceValues.Count == safeReelCount + 1)
+        {
+            firstSourceIndex = minMatch;
+        }
+        else if (sourceValues.Count >= safeReelCount)
+        {
+            firstSourceIndex = sourceValues.Count - safeReelCount + minMatch - 1;
+        }
+        else
+        {
+            firstSourceIndex = Math.Max(0, sourceValues.Count - expectedPayoutCount);
+        }
+
+        var ascendingMultipliers = new List<double>();
+        var ascendingMatchCounts = new List<int>();
+        for (int matchCount = minMatch; matchCount <= safeReelCount; matchCount++)
+        {
+            int sourceIndex = firstSourceIndex + matchCount - minMatch;
+            if (sourceIndex < 0 || sourceIndex >= sourceValues.Count)
+            {
+                break;
+            }
+
+            double value = sourceValues[sourceIndex];
+            if (double.IsNaN(value) || double.IsInfinity(value))
+            {
+                continue;
+            }
+
+            ascendingMatchCounts.Add(matchCount);
+            ascendingMultipliers.Add(value);
+        }
+
+        for (int index = ascendingMultipliers.Count - 1; index >= 0; index--)
+        {
+            symbol.matchCounts.Add(ascendingMatchCounts[index]);
+            symbol.multipliers.Add(ascendingMultipliers[index]);
+        }
+    }
+
+    private static int InferMinimumMatch(List<double> sourceValues, int reelCount)
+    {
+        if (sourceValues.Count < reelCount)
+        {
+            return Math.Max(1, reelCount - sourceValues.Count + 1);
+        }
+
+        int firstIndexedValue = sourceValues.Count == reelCount + 1
+            ? 1
+            : Math.Max(0, sourceValues.Count - reelCount);
+        for (int matchCount = 1; matchCount <= reelCount; matchCount++)
+        {
+            int sourceIndex = firstIndexedValue + matchCount - 1;
+            if (sourceIndex >= 0 && sourceIndex < sourceValues.Count &&
+                Math.Abs(sourceValues[sourceIndex]) > double.Epsilon)
+            {
+                return matchCount;
+            }
+        }
+
+        return 1;
     }
 
     /// <summary>

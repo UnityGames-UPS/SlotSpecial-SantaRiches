@@ -33,8 +33,16 @@ public class JSFunctCalls : MonoBehaviour
 
   internal void SendCustomMessage(string message)
   {
+    if (string.IsNullOrWhiteSpace(message))
+    {
+      Debug.LogWarning("[JS] Ignored an empty platform message.");
+      return;
+    }
+
 #if UNITY_WEBGL && !UNITY_EDITOR
     SendPostMessage(message);
+#else
+    Debug.Log($"[JS] Platform message: {message}");
 #endif
   }
 
