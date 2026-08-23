@@ -483,6 +483,7 @@ public class UIManager : MonoBehaviour
         extraWinPanel.SetActive(true);
         extraWinPanel.transform.SetAsLastSibling();
         extraWinPanel.transform.localScale = Vector3.zero;
+        audioManager?.PlayExtraWin(popupType);
 
         float countDuration = Mathf.Max(4f, extraWinCountDuration);
         Sequence sequence = DOTween.Sequence().SetUpdate(true);
@@ -1828,14 +1829,14 @@ public class UIManager : MonoBehaviour
 
         if (IsBlockingInteraction || gameManager == null) return;
         HideAutoplayPanel();
-        if (gameManager.TryStartManualSpin()) audioManager?.PlaySpinClick();
+        gameManager.TryStartManualSpin();
     }
 
     private void HandleStopClick()
     {
         if (!IsBlockingInteraction && gameManager != null && gameManager.RequestStopSpin())
         {
-            audioManager?.PlayNormalClick();
+            audioManager?.PlaySpinButton();
         }
     }
 
@@ -1843,19 +1844,19 @@ public class UIManager : MonoBehaviour
     {
         if (IsBlockingInteraction || gameManager == null) return;
         gameManager.StopAutoSpin();
-        audioManager?.PlayNormalClick();
+        audioManager?.PlaySpinButton();
     }
 
     private void HandleFreeSpinStartClick()
     {
         if (IsBlockingInteraction || gameManager == null) return;
-        if (gameManager.StartPendingFreeSpins()) audioManager?.PlaySpinClick();
+        if (gameManager.StartPendingFreeSpins()) audioManager?.PlayFreeSpinButton();
     }
 
     private void HandleFreeSpinTakeClick()
     {
         if (IsBlockingInteraction || gameManager == null) return;
-        if (gameManager.TakeFreeSpinWin()) audioManager?.PlayNormalClick();
+        if (gameManager.TakeFreeSpinWin()) audioManager?.PlayFreeSpinButton();
     }
 
     private void HandleBetIncrease() => ChangeBet(true);
@@ -1865,14 +1866,13 @@ public class UIManager : MonoBehaviour
     {
         if (IsBlockingInteraction || gameManager == null || !gameManager.TryChangeBet(increase)) return;
         if (gameManager.IsMaximumBet) audioManager?.PlayMaxBet();
-        else audioManager?.PlayNormalClick();
+        else audioManager?.PlayBetChange();
     }
 
     private void HandleSpeedClick()
     {
         if (IsBlockingInteraction || gameManager == null || !gameManager.CycleSpinSpeed()) return;
-        if (gameManager.CurrentSpinSpeed == SpinSpeed.Normal) audioManager?.PlayNormalClick();
-        else audioManager?.PlayTurboClick();
+        audioManager?.PlayTurboClick();
     }
 
     private void HandleAuto10() => SelectAutoplay(10);
@@ -1896,7 +1896,7 @@ public class UIManager : MonoBehaviour
         }
 
         HideAutoplayPanel();
-        audioManager?.PlaySpinClick();
+        audioManager?.PlaySpinButton();
     }
 
     private static string FormatAutoplayCount(int count)

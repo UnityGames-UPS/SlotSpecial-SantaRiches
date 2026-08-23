@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 /// <summary>
-/// Persists separate music and sound-effect settings and provides optional
-/// bottom-panel sound hooks. Audio clips are intentionally optional because
-/// this project currently contains no imported audio assets.
+/// Owns the Santa Riches music and sound-effect channels, persists the user's
+/// audio settings, and exposes event-specific playback methods to the game.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class AudioManager : MonoBehaviour
@@ -15,18 +15,39 @@ public sealed class AudioManager : MonoBehaviour
     private const string MusicEnabledKey = "SantaRiches.MusicEnabled";
     private const string SfxEnabledKey = "SantaRiches.SfxEnabled";
 
-    [Header("Sources")]
-    [Tooltip("Optional looping music source.")]
+    [Header("Sources (Created Automatically When Empty)")]
     [SerializeField] private AudioSource musicSource;
-    [Tooltip("Optional source used for one-shot interface sounds.")]
-    [SerializeField] private AudioSource sfxSource;
+    [FormerlySerializedAs("sfxSource")]
+    [SerializeField] private AudioSource uiSource;
+    [SerializeField] private AudioSource gameplaySource;
 
-    [Header("Optional UI Clips")]
-    [SerializeField] private AudioClip normalClickClip;
-    [SerializeField] private AudioClip turboClickClip;
-    [SerializeField] private AudioClip maxBetClip;
+    [Header("Music")]
+    [SerializeField] private AudioClip backgroundMusicClip;
+
+    [Header("UI Sounds")]
+    [FormerlySerializedAs("normalClickClip")]
+    [SerializeField] private AudioClip generalButtonClip;
     [SerializeField] private AudioClip popupOpenClip;
-    [SerializeField] private AudioClip spinClickClip;
+    [SerializeField] private AudioClip betButtonClip;
+    [FormerlySerializedAs("maxBetClip")]
+    [SerializeField] private AudioClip maximumBetClip;
+    [FormerlySerializedAs("turboClickClip")]
+    [SerializeField] private AudioClip turboButtonClip;
+    [FormerlySerializedAs("spinClickClip")]
+    [SerializeField] private AudioClip spinButtonClip;
+    [SerializeField] private AudioClip freeSpinButtonClip;
+
+    [Header("Reel and Feature Sounds")]
+    [SerializeField] private AudioClip reelStopClip;
+    [SerializeField] private AudioClip moonLandClip;
+    [SerializeField] private AudioClip moonScatterClip;
+    [SerializeField] private AudioClip giftRevealClip;
+
+    [Header("Win Sounds")]
+    [SerializeField] private AudioClip winningSymbolsClip;
+    [SerializeField] private AudioClip winPaylineClip;
+    [SerializeField] private AudioClip bigWinClip;
+    [SerializeField] private AudioClip superBigWinClip;
 
     internal event Action SettingsChanged;
 
@@ -41,6 +62,7 @@ public sealed class AudioManager : MonoBehaviour
 
     private void Awake()
     {
+        EnsureAudioSources();
         RefreshAudioSources();
         LoadSettings();
         ApplySettings(false);
@@ -49,6 +71,11 @@ public sealed class AudioManager : MonoBehaviour
     private void OnApplicationFocus(bool focus)
     {
         SetMuteAll(!focus);
+    }
+
+    private void OnApplicationPause(bool paused)
+    {
+        SetMuteAll(paused);
     }
 
     internal void SetMusicVolume(float value)
@@ -96,9 +123,7 @@ public sealed class AudioManager : MonoBehaviour
             }
             else
             {
-                source.mute = preFocusMuteState.TryGetValue(source, out bool wasMuted)
-                    ? wasMuted
-                    : source.mute;
+                source.mute = preFocusMuteState.TryGetValue(source, out bool wasMuted) && wasMuted;
             }
         }
 
@@ -108,20 +133,100 @@ public sealed class AudioManager : MonoBehaviour
         }
     }
 
-    internal void PlayNormalClick() => PlaySfx(normalClickClip);
-    internal void PlayTurboClick() => PlaySfx(turboClickClip);
-    internal void PlayMaxBet() => PlaySfx(maxBetClip);
-    internal void PlayPopupOpen() => PlaySfx(popupOpenClip);
-    internal void PlaySpinClick() => PlaySfx(spinClickClip != null ? spinClickClip : normalClickClip);
-
-    internal void PlaySfx(AudioClip clip)
+    internal void PlayBackgroundMusic()
     {
-        if (!SfxEnabled || SfxVolume <= 0f || sfxSource == null || clip == null)
+        if (!MusicEnabled || MusicVolume <= 0f || musicSource == null || backgroundMusicClip == null)
         {
             return;
         }
 
-        sfxSource.PlayOneShot(clip, SfxVolume);
+        if (musicSource.isPlaying && musicSource.clip == backgroundMusicClip)
+        {
+            return;
+        }
+
+        musicSource.clip = backgroundMusicClip;
+        musicSource.loop = true;
+        musicSource.Play();
+    }
+
+    internal void StopBackgroundMusic()
+    {
+        if (musicSource != null)
+        {
+            musicSource.Stop();
+        }
+    }
+
+    internal void PlayNormalClick() => PlayUiSound(generalButtonClip);
+    internal void PlayPopupOpen() => PlayUiSound(popupOpenClip);
+    internal void PlayBetChange() => PlayUiSound(betButtonClip);
+    internal void PlayMaxBet() => PlayUiSound(maximumBetClip);
+    internal void PlayTurboClick() => PlayUiSound(turboButtonClip);
+    internal void PlaySpinButton() => PlayUiSound(spinButtonClip);
+    internal void PlaySpinClick() => PlaySpinButton();
+    internal void PlayFreeSpinButton() => PlayUiSound(freeSpinButtonClip);
+
+    internal void PlayReelStop() => PlayGameplaySound(reelStopClip);
+    internal void PlayMoonLand() => PlayGameplaySound(moonLandClip);
+    internal void PlayMoonScatter() => PlayGameplaySound(moonScatterClip);
+    internal void PlayGiftReveal() => PlayGameplaySound(giftRevealClip);
+    internal void PlayWinningSymbols() => PlayGameplaySound(winningSymbolsClip);
+    internal void PlayWinPayline() => PlayGameplaySound(winPaylineClip);
+
+    internal void PlayExtraWin(WinPopupType popupType)
+    {
+        AudioClip clip = popupType == WinPopupType.SuperBigWin
+            ? superBigWinClip
+            : popupType == WinPopupType.BigWin
+                ? bigWinClip
+                : null;
+        PlayGameplaySound(clip);
+    }
+
+    internal void PlaySfx(AudioClip clip)
+    {
+        PlayGameplaySound(clip);
+    }
+
+    private void PlayUiSound(AudioClip clip)
+    {
+        PlayOneShot(uiSource, clip);
+    }
+
+    private void PlayGameplaySound(AudioClip clip)
+    {
+        PlayOneShot(gameplaySource, clip);
+    }
+
+    private void PlayOneShot(AudioSource source, AudioClip clip)
+    {
+        if (!SfxEnabled || SfxVolume <= 0f || isForceMuted || source == null || clip == null)
+        {
+            return;
+        }
+
+        source.PlayOneShot(clip);
+    }
+
+    private void EnsureAudioSources()
+    {
+        musicSource = EnsureAudioSource(musicSource, true);
+        uiSource = EnsureAudioSource(uiSource, false);
+        gameplaySource = EnsureAudioSource(gameplaySource, false);
+    }
+
+    private AudioSource EnsureAudioSource(AudioSource source, bool shouldLoop)
+    {
+        if (source == null)
+        {
+            source = gameObject.AddComponent<AudioSource>();
+        }
+
+        source.playOnAwake = false;
+        source.loop = shouldLoop;
+        source.spatialBlend = 0f;
+        return source;
     }
 
     private void LoadSettings()
@@ -141,9 +246,7 @@ public sealed class AudioManager : MonoBehaviour
         foreach (AudioSource source in allSources)
         {
             if (source == null) continue;
-            source.mute = preFocusMuteState.TryGetValue(source, out bool wasMuted)
-                ? wasMuted
-                : source.mute;
+            source.mute = preFocusMuteState.TryGetValue(source, out bool wasMuted) && wasMuted;
         }
         preFocusMuteState.Clear();
     }
@@ -152,7 +255,8 @@ public sealed class AudioManager : MonoBehaviour
     {
         allSources.RemoveAll(source => source == null);
         AddAudioSource(musicSource);
-        AddAudioSource(sfxSource);
+        AddAudioSource(uiSource);
+        AddAudioSource(gameplaySource);
 
         foreach (AudioSource source in Resources.FindObjectsOfTypeAll<AudioSource>())
         {
@@ -178,9 +282,17 @@ public sealed class AudioManager : MonoBehaviour
             musicSource.volume = MusicEnabled ? MusicVolume : 0f;
         }
 
-        if (sfxSource != null)
+        float sfxVolume = SfxEnabled ? SfxVolume : 0f;
+        if (uiSource != null) uiSource.volume = sfxVolume;
+        if (gameplaySource != null) gameplaySource.volume = sfxVolume;
+
+        if (MusicEnabled && MusicVolume > 0f)
         {
-            sfxSource.volume = SfxEnabled ? SfxVolume : 0f;
+            PlayBackgroundMusic();
+        }
+        else
+        {
+            StopBackgroundMusic();
         }
 
         if (persist)

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 using DG.Tweening;
 using System.Collections.Generic;
@@ -19,8 +20,6 @@ public class OCController : MonoBehaviour
     [Header("Background Toggle Settings")]
     [SerializeField] private GameObject landscapeBackground;
     [SerializeField] private GameObject portraitBackground;
-    [SerializeField] private GameObject wheelLandscapeBackground;
-    [SerializeField] private GameObject wheelPortraitBackground;
 
     [Header("Canvas Scaler Resolutions")]
     [SerializeField] private Vector2 landscapeReferenceResolution = new Vector2(1920f, 1080f);
@@ -62,9 +61,11 @@ public class OCController : MonoBehaviour
     [SerializeField] private Vector2 portraitSantaSize = new Vector2(900f, 1000f);
     [SerializeField] private Vector3 portraitSantaScale = Vector3.one;
 
-    [Header("Info Page & Guide Settings")]
-    [SerializeField] private RectTransform infoPageScrollObject;
-    [SerializeField] private RectTransform guideScrollObject;
+    [Header("Info Page & Guide Layout")]
+    [FormerlySerializedAs("infoPageScrollObject")]
+    [SerializeField] private RectTransform infoPageLayoutObject;
+    [FormerlySerializedAs("guideScrollObject")]
+    [SerializeField] private RectTransform guidePageLayoutObject;
 
     [Header("Animation Settings")]
     [SerializeField] private float transitionDuration = 0.2f;
@@ -116,6 +117,7 @@ public class OCController : MonoBehaviour
             slotHolderObject = slotObject.Find("SlotHolder") as RectTransform;
         }
 
+        ResolvePageLayoutObjects();
         EnsureSantaPresentationParent();
         CacheLandscapeSantaState();
         CacheLandscapeSlotOverlayStates();
@@ -174,16 +176,6 @@ public class OCController : MonoBehaviour
         if (portraitBackground != null)
         {
             portraitBackground.SetActive(isMobilePortrait);
-        }
-
-        // Toggle Wheel Landscape vs Portrait Background Objects
-        if (wheelLandscapeBackground != null)
-        {
-            wheelLandscapeBackground.SetActive(!isMobilePortrait);
-        }
-        if (wheelPortraitBackground != null)
-        {
-            wheelPortraitBackground.SetActive(isMobilePortrait);
         }
 
         // 3. Update Canvas Scaler Reference Resolution
@@ -262,37 +254,64 @@ public class OCController : MonoBehaviour
         // 7. Apply portrait-only Santa settings, or restore its saved landscape state.
         UpdateSantaLayout(isMobilePortrait);
 
-        // 8. Update Info Page Scroll Object Height (1080 for Landscape, 1920 for Mobile Portrait)
-        if (infoPageScrollObject != null)
+        // 8. Update Info Page Height (1080 for Landscape, 1920 for Mobile Portrait)
+        if (infoPageLayoutObject != null)
         {
             float targetHeight = isMobilePortrait ? 1920f : 1080f;
-            Vector2 targetScrollSize = new Vector2(infoPageScrollObject.sizeDelta.x, targetHeight);
+            Vector2 targetScrollSize = new Vector2(infoPageLayoutObject.sizeDelta.x, targetHeight);
             if (transitionDuration > 0)
             {
-                Tween scrollTween = infoPageScrollObject.DOSizeDelta(targetScrollSize, transitionDuration).SetEase(Ease.OutCubic);
+                Tween scrollTween = infoPageLayoutObject.DOSizeDelta(targetScrollSize, transitionDuration).SetEase(Ease.OutCubic);
                 activeTweens.Add(scrollTween);
             }
             else
             {
-                infoPageScrollObject.sizeDelta = targetScrollSize;
+                infoPageLayoutObject.sizeDelta = targetScrollSize;
             }
         }
 
-        // 9. Update Guide Scroll Object Height (1080 for Landscape, 1920 for Mobile Portrait)
-        if (guideScrollObject != null)
+        // 9. Update Guide Page Height (1080 for Landscape, 1920 for Mobile Portrait)
+        if (guidePageLayoutObject != null)
         {
             float targetHeight = isMobilePortrait ? 1920f : 1080f;
-            Vector2 targetScrollSize = new Vector2(guideScrollObject.sizeDelta.x, targetHeight);
+            Vector2 targetScrollSize = new Vector2(guidePageLayoutObject.sizeDelta.x, targetHeight);
             if (transitionDuration > 0)
             {
-                Tween scrollTween = guideScrollObject.DOSizeDelta(targetScrollSize, transitionDuration).SetEase(Ease.OutCubic);
+                Tween scrollTween = guidePageLayoutObject.DOSizeDelta(targetScrollSize, transitionDuration).SetEase(Ease.OutCubic);
                 activeTweens.Add(scrollTween);
             }
             else
             {
-                guideScrollObject.sizeDelta = targetScrollSize;
+                guidePageLayoutObject.sizeDelta = targetScrollSize;
             }
         }
+    }
+
+    private void ResolvePageLayoutObjects()
+    {
+        infoPageLayoutObject = ResolvePageLayoutObject(infoPageLayoutObject, "InfoScroll");
+        guidePageLayoutObject = ResolvePageLayoutObject(guidePageLayoutObject, "GuideScroll");
+    }
+
+    private static RectTransform ResolvePageLayoutObject(RectTransform assignedObject, string scrollObjectName)
+    {
+        if (assignedObject == null)
+        {
+            return null;
+        }
+
+        ScrollRect[] scrollRects = assignedObject.GetComponentsInChildren<ScrollRect>(true);
+        foreach (ScrollRect scrollRect in scrollRects)
+        {
+            if (scrollRect != null && scrollRect.name == scrollObjectName)
+            {
+                // The page-sized object is the ScrollRect's parent. This also
+                // corrects an Inspector reference that points at the outer panel.
+                return scrollRect.transform.parent as RectTransform ?? assignedObject;
+            }
+        }
+
+        return assignedObject;
     }
 
     private void KillActiveTweens()

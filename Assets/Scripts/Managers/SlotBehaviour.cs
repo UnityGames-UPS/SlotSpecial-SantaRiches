@@ -93,7 +93,10 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField, Min(0.05f)] private float fastMinimumSpinTime = 0.75f;
     [SerializeField, Min(1)] private int minSpinCyclesBeforeStop = 3;
     [SerializeField, Min(0f)] private float reelStartStagger = 0.08f;
-    [SerializeField, Min(0f)] private float reelStopStagger = 0.12f;
+    [FormerlySerializedAs("reelStopStagger")]
+    [SerializeField, Min(0f)] private float normalReelStopInterval = 0.6f;
+    [SerializeField, Min(0f)] private float turboReelStopInterval = 0.06f;
+    [SerializeField, Min(0f)] private float quickReelStopInterval = 0.03f;
     [SerializeField, Min(0.1f)] private float resultTimeout = 12f;
     [SerializeField, Min(100f)] private float normalReelSpeed = 4700f;
     [SerializeField, Min(100f)] private float fastReelSpeed = 6000f;
@@ -126,19 +129,22 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField] private List<Sprite> animSpritesGift = new List<Sprite>();
     [SerializeField] private List<Sprite> animSpritesJ = new List<Sprite>();
     [SerializeField] private List<Sprite> animSpritesK = new List<Sprite>();
+    [Tooltip("Used only when a Moon lands as its reel stops.")]
+    [SerializeField] private List<Sprite> animSpritesMoonLanding = new List<Sprite>();
+    [Tooltip("Used for the Moon win that triggers the Free Games panel.")]
     [SerializeField] private List<Sprite> animSpritesMoon = new List<Sprite>();
     [SerializeField] private List<Sprite> animSpritesQ = new List<Sprite>();
     [SerializeField] private List<Sprite> animSpritesSanta = new List<Sprite>();
     [SerializeField] private List<Sprite> animSpritesSocks = new List<Sprite>();
     [SerializeField, Min(0.1f)] private float winSymbolLoopDuration = 1.2f;
+    [SerializeField, Min(0.1f)] private float moonOneShotDuration = 1.5f;
 
     [Header("Free Spin Start Transition")]
     [SerializeField, Min(0f)] private float freeSpinSymbolFadeOutDuration = 1f;
     [SerializeField, Min(0f)] private float freeSpinSymbolFadeInDuration = 1f;
 
-    [Header("Audio (Optional)")]
-    [SerializeField] private AudioSource spinAudio;
-    [SerializeField] private AudioSource winAudio;
+    [Header("Audio")]
+    [SerializeField] private AudioManager audioManager;
 
     [Header("Behaviour Events (Optional)")]
     [SerializeField] private UnityEvent onSpinStarted = new UnityEvent();
@@ -200,6 +206,7 @@ public class SlotBehaviour : MonoBehaviour
     private bool requiredPresentationCompletionRaised;
     private bool shuttingDown;
     private bool freeSpinWinPresentationActive;
+    private int activeMoonLandingAnimations;
     private double freeSpinServerTotalWin;
     private int freeSpinWinDecimalPlaces;
     private int currentSpinReelWinDecimalPlaces = -1;
@@ -279,15 +286,11 @@ public class SlotBehaviour : MonoBehaviour
     private void OnDisable()
     {
         shuttingDown = true;
+        activeMoonLandingAnimations = 0;
         SetExtraGiftWildRevealActive(false);
         UnbindGameManagerEvents();
         KillAllTweens();
         StopWinningAnimations();
-
-        if (spinAudio != null && spinAudio.isPlaying)
-        {
-            spinAudio.Stop();
-        }
     }
 
     private void OnDestroy()
@@ -300,6 +303,7 @@ public class SlotBehaviour : MonoBehaviour
 
     private void ResolveSceneReferences()
     {
+        audioManager = audioManager != null ? audioManager : FindSceneComponent<AudioManager>();
         TotalWin_text = TotalWin_text != null ? TotalWin_text : FindNamedText("WinAmount", "TotalWin");
         winLabelText = winLabelText != null ? winLabelText : FindNamedText("WinText");
         goodLuckText = goodLuckText != null ? goodLuckText : FindNamedText("GoodLuckText");
@@ -1124,6 +1128,7 @@ public class SlotBehaviour : MonoBehaviour
             result.resultMatrix[position.col][position.row] = gameConfig.giftWildSymbolId;
         }
 
+        audioManager?.PlayGiftReveal();
         ApplyMatrix(result.resultMatrix);
     }
 
@@ -1195,7 +1200,6 @@ public class SlotBehaviour : MonoBehaviour
         resultFailed = false;
         pendingResult = null;
 
-        PlayLoopingAudio(spinAudio);
         onSpinStarted?.Invoke();
 
         spinRoutine = StartCoroutine(SpinCoroutine());
@@ -1412,7 +1416,6 @@ public class SlotBehaviour : MonoBehaviour
             }
         }
 
-        StopLoopingAudio(spinAudio);
         yield return StopReelsAndApplyMatrix(pendingResult.resultMatrix);
         yield return RevealExtraGiftWilds(pendingResult);
 
@@ -1430,7 +1433,6 @@ public class SlotBehaviour : MonoBehaviour
     private IEnumerator AbortSpin(string reason)
     {
         Debug.LogError($"[SlotBehaviour] {reason}");
-        StopLoopingAudio(spinAudio);
         KillReelTweens(true);
 
         IsSpinning = false;
@@ -1481,7 +1483,11 @@ public class SlotBehaviour : MonoBehaviour
         bool quickStop = stopSpinRequested || spinSpeed == SpinSpeed.QuickSpin;
         bool turboStop = !quickStop && spinSpeed == SpinSpeed.Turbo;
         float timingScale = quickStop ? 0.35f : turboStop ? 0.55f : 1f;
-        float stopStagger = quickStop ? reelStopStagger * 0.25f : turboStop ? reelStopStagger * 0.5f : reelStopStagger;
+        float stopInterval = quickStop
+            ? quickReelStopInterval
+            : turboStop
+                ? turboReelStopInterval
+                : normalReelStopInterval;
         float overshoot = stopOvershootDistance * timingScale;
         float overshootDuration = stopOvershootDuration * timingScale;
         float settleDuration = stopSettleDuration * timingScale;
@@ -1491,17 +1497,26 @@ public class SlotBehaviour : MonoBehaviour
             StartCoroutine(StopSingleReel(
                 reelIndex,
                 resultMatrix[reelIndex],
-                reelIndex * stopStagger,
+                reelIndex * stopInterval,
                 quickStop,
                 overshoot,
                 overshootDuration,
                 settleDuration));
         }
 
-        float completeAfter = Math.Max(0, reels.Count - 1) * stopStagger + overshootDuration + settleDuration;
+        float completeAfter = Math.Max(0, reels.Count - 1) * stopInterval + overshootDuration + settleDuration;
         if (completeAfter > 0f)
         {
             yield return new WaitForSecondsRealtime(completeAfter);
+        }
+
+        // Let the last reel's completion callback start its Moon animation
+        // before deciding whether result presentation can continue.
+        yield return null;
+
+        while (activeMoonLandingAnimations > 0)
+        {
+            yield return null;
         }
 
         foreach (ReelRuntime reel in reels)
@@ -1549,6 +1564,13 @@ public class SlotBehaviour : MonoBehaviour
 
         activeTweens.Add(stopSequence);
         yield return stopSequence.WaitForCompletion();
+
+        audioManager?.PlayReelStop();
+        if (gameConfig != null && resultColumn != null && resultColumn.Contains(gameConfig.scatterSymbolId))
+        {
+            audioManager?.PlayMoonLand();
+            StartCoroutine(PlayMoonLandingAnimations(reelIndex, resultColumn));
+        }
     }
 
     private void ApplyMatrix(List<List<int>> matrix)
@@ -1694,16 +1716,24 @@ public class SlotBehaviour : MonoBehaviour
         double displayedWin = result.grandTotalWin > 0d ? result.grandTotalWin : result.winAmount;
         bool isFreeSpinResult = freeSpinWinPresentationActive &&
             gameManager != null && gameManager.IsFreeSpinActive;
+        bool scatterTriggered = result.freeSpinData?.isTriggered == true ||
+            (result.scatterData != null &&
+                (result.scatterData.isTriggered || result.scatterData.winAmount > 0d));
+
+        if (scatterTriggered)
+        {
+            audioManager?.PlayMoonScatter();
+        }
 
         if (isFreeSpinResult)
         {
             ShowFreeSpinResultWin(result);
-            if (result.winAmount > 0d) PlayAudio(winAudio);
+            if (result.winAmount > 0d) audioManager?.PlayWinningSymbols();
         }
         else if (displayedWin > 0d)
         {
             ShowWinState(displayedWin, result.winAmountDecimalPlaces);
-            PlayAudio(winAudio);
+            audioManager?.PlayWinningSymbols();
         }
         else
         {
@@ -1762,7 +1792,17 @@ public class SlotBehaviour : MonoBehaviour
         // result presentation can report completion in this same frame.
         yield return null;
 
-        if (useFreeSpinWinBoxes)
+        bool triggersFreeGames = result?.freeSpinData != null &&
+            result.freeSpinData.isTriggered &&
+            result.freeSpinData.spinsAwarded > 0;
+
+        if (triggersFreeGames)
+        {
+            // A Free Games trigger has its own Moon-only presentation. Do not
+            // show the normal combined win boxes or the individual win lines.
+            yield return PlayFreeGameMoonTriggerAnimation(result);
+        }
+        else if (useFreeSpinWinBoxes)
         {
             yield return PlayFreeSpinWinBoxes(result);
 
@@ -1776,11 +1816,7 @@ public class SlotBehaviour : MonoBehaviour
         }
         else
         {
-            bool triggersFreeGames = result?.freeSpinData != null &&
-                result.freeSpinData.isTriggered &&
-                result.freeSpinData.spinsAwarded > 0 &&
-                !result.isFreeSpinResult;
-            bool showIndividualWinLines = !autoplayRoundInProgress && !triggersFreeGames;
+            bool showIndividualWinLines = !autoplayRoundInProgress;
             yield return PlayNormalWinPresentation(result, showIndividualWinLines);
         }
 
@@ -1804,6 +1840,145 @@ public class SlotBehaviour : MonoBehaviour
         ShowWinBoxes(winningPositions);
         yield return new WaitForSecondsRealtime(Mathf.Max(0.1f, freeSpinWinBoxDuration));
         HideFreeSpinWinBoxes();
+    }
+
+    private IEnumerator PlayMoonLandingAnimations(int reelIndex, IReadOnlyList<int> resultColumn)
+    {
+        if (resultColumn == null)
+        {
+            yield break;
+        }
+
+        List<int> moonPositions = new List<int>();
+        for (int rowIndex = 0; rowIndex < resultColumn.Count; rowIndex++)
+        {
+            if (gameConfig != null && resultColumn[rowIndex] == gameConfig.scatterSymbolId)
+            {
+                moonPositions.Add(rowIndex * DefaultReelCount + reelIndex);
+            }
+        }
+
+        yield return PlayMoonAnimationsOnce(moonPositions, true);
+    }
+
+    private IEnumerator PlayFreeGameMoonTriggerAnimation(SpinResult result)
+    {
+        HideAllWinLineVisuals();
+        HideFreeSpinWinBoxes();
+
+        List<int> moonPositions = result?.scatterData?.positions?
+            .Distinct()
+            .ToList() ?? new List<int>();
+        if (moonPositions.Count == 0)
+        {
+            moonPositions = FindVisibleMoonPositions();
+        }
+
+        yield return PlayMoonAnimationsOnce(moonPositions, false);
+        HideFreeSpinWinBoxes();
+    }
+
+    private IEnumerator PlayMoonAnimationsOnce(IEnumerable<int> positions, bool isLandingAnimation)
+    {
+        if (positions == null || freeSpinWinBoxesRoot == null)
+        {
+            yield break;
+        }
+
+        List<Sprite> moonFrames = isLandingAnimation
+            ? animSpritesMoonLanding
+            : animSpritesMoon;
+        if (moonFrames == null || moonFrames.Count == 0)
+        {
+            yield break;
+        }
+
+        freeSpinWinBoxesRoot.gameObject.SetActive(true);
+        List<Vector2Int> startedAnimations = new List<Vector2Int>();
+        foreach (int position in positions.Distinct())
+        {
+            int rowIndex = position / DefaultReelCount;
+            int columnIndex = position % DefaultReelCount;
+            if (!IsMoonSymbolAt(columnIndex, rowIndex))
+            {
+                continue;
+            }
+
+            if (StartWinningSymbolAnimation(
+                    columnIndex,
+                    rowIndex,
+                    false,
+                    moonOneShotDuration,
+                    moonFrames))
+            {
+                startedAnimations.Add(new Vector2Int(columnIndex, rowIndex));
+            }
+        }
+
+        if (startedAnimations.Count == 0)
+        {
+            RefreshWinAnimationRootVisibility();
+            yield break;
+        }
+
+        if (isLandingAnimation)
+        {
+            activeMoonLandingAnimations++;
+        }
+
+        yield return new WaitForSecondsRealtime(Mathf.Max(0.1f, moonOneShotDuration));
+
+        foreach (Vector2Int position in startedAnimations)
+        {
+            StopWinningSymbolAnimation(position.x, position.y);
+        }
+
+        if (isLandingAnimation)
+        {
+            activeMoonLandingAnimations = Math.Max(0, activeMoonLandingAnimations - 1);
+        }
+
+        RefreshWinAnimationRootVisibility();
+    }
+
+    private List<int> FindVisibleMoonPositions()
+    {
+        List<int> positions = new List<int>();
+        if (currentDisplayMatrix == null)
+        {
+            return positions;
+        }
+
+        for (int columnIndex = 0; columnIndex < currentDisplayMatrix.Count; columnIndex++)
+        {
+            List<int> column = currentDisplayMatrix[columnIndex];
+            if (column == null) continue;
+            for (int rowIndex = 0; rowIndex < column.Count; rowIndex++)
+            {
+                if (IsMoonSymbolAt(columnIndex, rowIndex))
+                {
+                    positions.Add(rowIndex * DefaultReelCount + columnIndex);
+                }
+            }
+        }
+
+        return positions;
+    }
+
+    private bool IsMoonSymbolAt(int columnIndex, int rowIndex)
+    {
+        if (currentDisplayMatrix == null ||
+            columnIndex < 0 || columnIndex >= currentDisplayMatrix.Count ||
+            currentDisplayMatrix[columnIndex] == null ||
+            rowIndex < 0 || rowIndex >= currentDisplayMatrix[columnIndex].Count)
+        {
+            return false;
+        }
+
+        int symbolId = currentDisplayMatrix[columnIndex][rowIndex];
+        return gameConfig != null
+            ? symbolId == gameConfig.scatterSymbolId
+            : GetSymbolSprite(symbolId) == spriteMoon;
     }
 
     private IEnumerator PlayNormalWinPresentation(SpinResult result, bool showIndividualWinLines)
@@ -1852,7 +2027,11 @@ public class SlotBehaviour : MonoBehaviour
 
                 bool lineVisible = ShowWinLineVisual(winLine.lineId);
                 ShowWinBoxes(winLine.positions);
-                if (lineVisible) ShowReelLineWinAmounts(winLine);
+                if (lineVisible)
+                {
+                    ShowReelLineWinAmounts(winLine);
+                    audioManager?.PlayWinPayline();
+                }
                 yield return lineDisplayDelay;
                 HideAllWinLineVisuals();
                 HideFreeSpinWinBoxes();
@@ -1941,6 +2120,20 @@ public class SlotBehaviour : MonoBehaviour
 
     private bool StartWinningSymbolAnimation(int columnIndex, int rowIndex)
     {
+        return StartWinningSymbolAnimation(
+            columnIndex,
+            rowIndex,
+            true,
+            winSymbolLoopDuration);
+    }
+
+    private bool StartWinningSymbolAnimation(
+        int columnIndex,
+        int rowIndex,
+        bool shouldLoop,
+        float animationDuration,
+        List<Sprite> overrideFrames = null)
+    {
         if (currentDisplayMatrix == null ||
             columnIndex < 0 || columnIndex >= winningSymbolAnimations.Count ||
             rowIndex < 0 || rowIndex >= winningSymbolAnimations[columnIndex].Count ||
@@ -1956,9 +2149,16 @@ public class SlotBehaviour : MonoBehaviour
             return false;
         }
 
-        if (!TryGetWinAnimation(
+        List<Sprite> frames = overrideFrames;
+        if (frames == null &&
+            !TryGetWinAnimation(
                 currentDisplayMatrix[columnIndex][rowIndex],
-                out List<Sprite> frames))
+                out frames))
+        {
+            return false;
+        }
+
+        if (frames == null || frames.Count == 0)
         {
             return false;
         }
@@ -1966,11 +2166,11 @@ public class SlotBehaviour : MonoBehaviour
         runtime.animation.StopAnimation();
         runtime.animation.textureArray = new List<Sprite>(frames);
         runtime.animation.rendererDelegate = runtime.renderer;
-        runtime.animation.doLoopAnimation = true;
+        runtime.animation.doLoopAnimation = shouldLoop;
         runtime.animation.delayBetweenLoop = 0f;
         int frameCount = runtime.animation.textureArray.Count;
         runtime.animation.AnimationSpeed = 0.0416666679f * frameCount * frameCount /
-            Mathf.Max(0.1f, winSymbolLoopDuration);
+            Mathf.Max(0.1f, animationDuration);
 
         runtime.renderer.color = Color.white;
         runtime.renderer.enabled = true;
@@ -1982,6 +2182,45 @@ public class SlotBehaviour : MonoBehaviour
         runtime.root.SetActive(true);
         runtime.animation.StartAnimation();
         return true;
+    }
+
+    private void StopWinningSymbolAnimation(int columnIndex, int rowIndex)
+    {
+        if (columnIndex < 0 || columnIndex >= winningSymbolAnimations.Count ||
+            rowIndex < 0 || rowIndex >= winningSymbolAnimations[columnIndex].Count)
+        {
+            return;
+        }
+
+        WinningSymbolAnimationRuntime runtime = winningSymbolAnimations[columnIndex][rowIndex];
+        runtime?.animation?.StopAnimation();
+        if (runtime?.root != null)
+        {
+            runtime.root.SetActive(false);
+        }
+
+        if (runtime?.staticSymbol != null)
+        {
+            Color color = runtime.staticSymbol.color;
+            runtime.staticSymbol.color = new Color(color.r, color.g, color.b, 1f);
+            runtime.staticSymbol.enabled = true;
+        }
+    }
+
+    private void RefreshWinAnimationRootVisibility()
+    {
+        if (freeSpinWinBoxesRoot == null)
+        {
+            return;
+        }
+
+        bool hasActiveWinBox = freeSpinWinBoxes
+            .SelectMany(column => column)
+            .Any(winBox => winBox != null && winBox.activeSelf);
+        bool hasActiveSymbolAnimation = winningSymbolAnimations
+            .SelectMany(column => column)
+            .Any(runtime => runtime?.root != null && runtime.root.activeSelf);
+        freeSpinWinBoxesRoot.gameObject.SetActive(hasActiveWinBox || hasActiveSymbolAnimation);
     }
 
     private bool TryGetWinAnimation(
@@ -2060,7 +2299,11 @@ public class SlotBehaviour : MonoBehaviour
                 }
 
                 bool lineVisible = ShowWinLineVisual(winLine.lineId);
-                if (lineVisible) ShowReelLineWinAmounts(winLine);
+                if (lineVisible)
+                {
+                    ShowReelLineWinAmounts(winLine);
+                    audioManager?.PlayWinPayline();
+                }
                 yield return lineDisplayDelay;
                 HideAllWinLineVisuals();
                 HideReelWinAmounts();
@@ -2524,33 +2767,6 @@ public class SlotBehaviour : MonoBehaviour
         if (character == '.') return DecimalPointSpriteIndex;
         if (character == ',') return CommaSpriteIndex;
         return -1;
-    }
-
-    private static void PlayAudio(AudioSource audioSource)
-    {
-        if (audioSource != null && audioSource.clip != null)
-        {
-            audioSource.PlayOneShot(audioSource.clip);
-        }
-    }
-
-    private static void PlayLoopingAudio(AudioSource audioSource)
-    {
-        if (audioSource == null || audioSource.clip == null)
-        {
-            return;
-        }
-
-        audioSource.loop = true;
-        audioSource.Play();
-    }
-
-    private static void StopLoopingAudio(AudioSource audioSource)
-    {
-        if (audioSource != null && audioSource.isPlaying)
-        {
-            audioSource.Stop();
-        }
     }
 
     private void KillReelTweens(bool restorePositions)
