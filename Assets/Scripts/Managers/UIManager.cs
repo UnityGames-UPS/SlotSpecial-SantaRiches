@@ -160,10 +160,10 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Button moreGamesButton;
     [SerializeField] private Button enterFullscreenButton;
     [SerializeField] private Button exitFullscreenButton;
+    [SerializeField] private Button portraitEnterFullscreenButton;
+    [SerializeField] private Button portraitExitFullscreenButton;
     [SerializeField] private bool moreGamesEnabled = true;
     [SerializeField] private string moreGamesMessage = "more_games";
-    [SerializeField] private string enterFullscreenMessage = "enter_fullscreen";
-    [SerializeField] private string exitFullscreenMessage = "exit_fullscreen";
 
     private TMP_Text portraitBalanceText;
     private TMP_Text portraitBetAmountText;
@@ -196,8 +196,6 @@ public class UIManager : MonoBehaviour
     private Button portraitSoundButton;
     private Button portraitHomeButton;
     private Button portraitMoreGamesButton;
-    private Button portraitEnterFullscreenButton;
-    private Button portraitExitFullscreenButton;
     private RectTransform portraitJackpotTopPanel;
 
     private readonly List<EventTrigger> spinEventTriggers = new List<EventTrigger>();
@@ -232,6 +230,7 @@ public class UIManager : MonoBehaviour
     private bool menuOpen;
     private bool soundOpen;
     private bool listenersRegistered;
+    private bool fullscreenListenerRegistered;
     private bool fullscreenState;
     private bool isMobilePortrait;
     private bool lastSocketConnected;
@@ -266,6 +265,7 @@ public class UIManager : MonoBehaviour
     private void OnEnable()
     {
         RegisterListeners();
+        RegisterFullscreenListener();
         OrientationChange.OnOrientationChanged += HandleOrientationChanged;
         UpdatePortraitJackpotBobState();
         RefreshControls();
@@ -273,7 +273,6 @@ public class UIManager : MonoBehaviour
 
     private void Start()
     {
-        fullscreenState = Screen.fullScreen;
         lastSocketConnected = gameManager != null && gameManager.IsSocketConnected;
         lastPopupBlockingState = popupManager != null && popupManager.IsBlockingPopupActive;
         SyncSoundControls();
@@ -285,6 +284,7 @@ public class UIManager : MonoBehaviour
 
     private void OnDisable()
     {
+        UnregisterFullscreenListener();
         UnregisterListeners();
         OrientationChange.OnOrientationChanged -= HandleOrientationChanged;
         CancelSpinHold();
@@ -293,13 +293,6 @@ public class UIManager : MonoBehaviour
 
     private void Update()
     {
-        bool currentFullscreen = Screen.fullScreen;
-        if (currentFullscreen != fullscreenState)
-        {
-            fullscreenState = currentFullscreen;
-            RefreshControls();
-        }
-
         bool socketConnected = gameManager != null && gameManager.IsSocketConnected;
         bool popupBlocking = popupManager != null && popupManager.IsBlockingPopupActive;
         if (socketConnected != lastSocketConnected || popupBlocking != lastPopupBlockingState)
@@ -948,14 +941,54 @@ public class UIManager : MonoBehaviour
         RefreshControls();
     }
 
-    /// <summary>Callable by the WebGL host when fullscreen changes externally.</summary>
-    internal void SetFullscreenStateFromHost(string value)
+    /// <summary>Called by the browser fullscreen listener with "1" or "0".</summary>
+    public void OnFullscreenChanged(string value)
     {
-        if (bool.TryParse(value, out bool parsed))
+        if (value == "1")
         {
-            fullscreenState = parsed;
-            RefreshControls();
+            fullscreenState = true;
         }
+        else if (value == "0")
+        {
+            fullscreenState = false;
+        }
+        else
+        {
+            Debug.LogWarning($"[Fullscreen] Ignored invalid browser state '{value}'. Expected '1' or '0'.");
+            return;
+        }
+
+        ApplyFullscreenButtonState();
+    }
+
+    private void RegisterFullscreenListener()
+    {
+        ApplyFullscreenButtonState();
+        if (jsBridge == null)
+        {
+            Debug.LogWarning("[Fullscreen] JSFunctCalls is missing. Fullscreen controls will remain windowed.");
+            fullscreenState = false;
+            ApplyFullscreenButtonState();
+            return;
+        }
+
+        jsBridge.RegisterFullscreenListener(gameObject.name);
+        fullscreenListenerRegistered = true;
+    }
+
+    private void UnregisterFullscreenListener()
+    {
+        if (!fullscreenListenerRegistered || jsBridge == null) return;
+        jsBridge.UnregisterFullscreenListener();
+        fullscreenListenerRegistered = false;
+    }
+
+    private void ApplyFullscreenButtonState()
+    {
+        if (enterFullscreenButton != null) enterFullscreenButton.gameObject.SetActive(!fullscreenState);
+        if (portraitEnterFullscreenButton != null) portraitEnterFullscreenButton.gameObject.SetActive(!fullscreenState);
+        if (exitFullscreenButton != null) exitFullscreenButton.gameObject.SetActive(fullscreenState);
+        if (portraitExitFullscreenButton != null) portraitExitFullscreenButton.gameObject.SetActive(fullscreenState);
     }
 
     internal void RefreshControls()
@@ -1056,10 +1089,7 @@ public class UIManager : MonoBehaviour
         SetInteractable(exitFullscreenButton, !blocked);
         SetInteractable(portraitExitFullscreenButton, !blocked);
 
-        if (enterFullscreenButton != null) enterFullscreenButton.gameObject.SetActive(!fullscreenState);
-        if (portraitEnterFullscreenButton != null) portraitEnterFullscreenButton.gameObject.SetActive(!fullscreenState);
-        if (exitFullscreenButton != null) exitFullscreenButton.gameObject.SetActive(fullscreenState);
-        if (portraitExitFullscreenButton != null) portraitExitFullscreenButton.gameObject.SetActive(fullscreenState);
+        ApplyFullscreenButtonState();
 
         bool autoplayChoicesEnabled = !blocked && gameManager.CanStartManualSpin;
         SetInteractable(auto10Button, autoplayChoicesEnabled);
@@ -2735,23 +2765,29 @@ public class UIManager : MonoBehaviour
     private void EnterFullscreen()
     {
         if (IsBlockingInteraction) return;
-        jsBridge?.SendCustomMessage(enterFullscreenMessage);
-#if !UNITY_WEBGL || UNITY_EDITOR
-        Screen.fullScreen = true;
-#endif
-        fullscreenState = true;
-        RefreshControls();
+        if (jsBridge == null)
+        {
+            Debug.LogWarning("[Fullscreen] Cannot request fullscreen because JSFunctCalls is missing.");
+            fullscreenState = false;
+            ApplyFullscreenButtonState();
+            return;
+        }
+
+        // This must remain a direct synchronous call from the button handler so
+        // requestFullscreen keeps the browser's user-gesture permission.
+        jsBridge.RequestExpandGame();
     }
 
     private void ExitFullscreen()
     {
         if (IsBlockingInteraction) return;
-        jsBridge?.SendCustomMessage(exitFullscreenMessage);
-#if !UNITY_WEBGL || UNITY_EDITOR
-        Screen.fullScreen = false;
-#endif
-        fullscreenState = false;
-        RefreshControls();
+        if (jsBridge == null)
+        {
+            Debug.LogWarning("[Fullscreen] Cannot exit fullscreen because JSFunctCalls is missing.");
+            return;
+        }
+
+        jsBridge.RequestShrinkGame();
     }
 
     private void HandleInsufficientBalance()

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -20,6 +21,7 @@ public sealed class AudioManager : MonoBehaviour
     [FormerlySerializedAs("sfxSource")]
     [SerializeField] private AudioSource uiSource;
     [SerializeField] private AudioSource gameplaySource;
+    [SerializeField] private AudioSource anticipationSource;
 
     [Header("Music")]
     [SerializeField] private AudioClip backgroundMusicClip;
@@ -41,6 +43,7 @@ public sealed class AudioManager : MonoBehaviour
     [SerializeField] private AudioClip moonLandClip;
     [SerializeField] private AudioClip moonScatterClip;
     [SerializeField] private AudioClip giftRevealClip;
+    [SerializeField] private AudioClip anticipationClip;
 
     [Header("Win Sounds")]
     [SerializeField] private AudioClip winningSymbolsClip;
@@ -59,6 +62,7 @@ public sealed class AudioManager : MonoBehaviour
     private readonly Dictionary<AudioSource, bool> preFocusMuteState = new Dictionary<AudioSource, bool>();
     private bool isForceMuted;
     private bool useFreeGamesMusic;
+    private Coroutine anticipationFadeCoroutine;
 
     private void Awake()
     {
@@ -187,6 +191,92 @@ public sealed class AudioManager : MonoBehaviour
     internal void PlayWinningSymbols() => PlayGameplaySound(winningSymbolsClip);
     internal void PlayWinPayline() => PlayGameplaySound(winPaylineClip);
 
+    internal void PlayAnticipation()
+    {
+        CancelAnticipationFade();
+
+        if (!SfxEnabled || SfxVolume <= 0f || isForceMuted ||
+            anticipationSource == null || anticipationClip == null)
+        {
+            return;
+        }
+
+        if (anticipationSource.isPlaying && anticipationSource.clip == anticipationClip)
+        {
+            anticipationSource.volume = SfxVolume;
+            return;
+        }
+
+        anticipationSource.Stop();
+        anticipationSource.volume = SfxVolume;
+        anticipationSource.clip = anticipationClip;
+        anticipationSource.loop = true;
+        anticipationSource.Play();
+    }
+
+    internal void FadeOutAnticipation(float duration)
+    {
+        if (anticipationSource == null || !anticipationSource.isPlaying)
+        {
+            return;
+        }
+
+        CancelAnticipationFade();
+        if (duration <= 0f)
+        {
+            StopAnticipation();
+            return;
+        }
+
+        anticipationFadeCoroutine = StartCoroutine(FadeOutAnticipationRoutine(duration));
+    }
+
+    internal void StopAnticipation()
+    {
+        CancelAnticipationFade();
+
+        if (anticipationSource == null)
+        {
+            return;
+        }
+
+        anticipationSource.Stop();
+        anticipationSource.clip = null;
+        anticipationSource.volume = SfxEnabled ? SfxVolume : 0f;
+    }
+
+    private IEnumerator FadeOutAnticipationRoutine(float duration)
+    {
+        float startVolume = anticipationSource.volume;
+        float elapsed = 0f;
+        while (anticipationSource != null && anticipationSource.isPlaying && elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            anticipationSource.volume = Mathf.Lerp(startVolume, 0f, Mathf.Clamp01(elapsed / duration));
+            yield return null;
+        }
+
+        if (anticipationSource != null)
+        {
+            anticipationSource.Stop();
+            anticipationSource.clip = null;
+            anticipationSource.volume = SfxEnabled ? SfxVolume : 0f;
+        }
+
+        anticipationFadeCoroutine = null;
+    }
+
+    private void CancelAnticipationFade()
+    {
+        if (anticipationFadeCoroutine == null)
+        {
+            return;
+        }
+
+        StopCoroutine(anticipationFadeCoroutine);
+        anticipationFadeCoroutine = null;
+    }
+
     internal void PlayExtraWin(WinPopupType popupType)
     {
         AudioClip clip = popupType == WinPopupType.SuperBigWin
@@ -227,6 +317,7 @@ public sealed class AudioManager : MonoBehaviour
         musicSource = EnsureAudioSource(musicSource, true);
         uiSource = EnsureAudioSource(uiSource, false);
         gameplaySource = EnsureAudioSource(gameplaySource, false);
+        anticipationSource = EnsureAudioSource(anticipationSource, true);
     }
 
     private AudioSource EnsureAudioSource(AudioSource source, bool shouldLoop)
@@ -270,6 +361,7 @@ public sealed class AudioManager : MonoBehaviour
         AddAudioSource(musicSource);
         AddAudioSource(uiSource);
         AddAudioSource(gameplaySource);
+        AddAudioSource(anticipationSource);
 
         foreach (AudioSource source in Resources.FindObjectsOfTypeAll<AudioSource>())
         {
@@ -298,6 +390,12 @@ public sealed class AudioManager : MonoBehaviour
         float sfxVolume = SfxEnabled ? SfxVolume : 0f;
         if (uiSource != null) uiSource.volume = sfxVolume;
         if (gameplaySource != null) gameplaySource.volume = sfxVolume;
+        if (anticipationSource != null) anticipationSource.volume = sfxVolume;
+
+        if (!SfxEnabled || SfxVolume <= 0f)
+        {
+            StopAnticipation();
+        }
 
         if (MusicEnabled && MusicVolume > 0f)
         {

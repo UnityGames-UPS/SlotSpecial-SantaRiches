@@ -37,122 +37,151 @@ mergeInto(LibraryManager.library, {
     },
 
     RequestFullscreen: function () {
-      console.log('[JS] RequestFullscreen called');
-      var el = document.documentElement;
-      var req = el.requestFullscreen
-             || el.webkitRequestFullscreen
-             || el.mozRequestFullScreen
-             || el.msRequestFullscreen;
-      if (req) {
-        req.call(el).then(function() {
-          console.log('[JS] Fullscreen request succeeded');
-        }).catch(function(err) {
-          console.warn('[JS] RequestFullscreen failed:', err);
-        });
-      } else {
-        console.error('[JS] No fullscreen API available!');
+      var element = document.documentElement;
+      var request = element.requestFullscreen
+                 || element.webkitRequestFullscreen
+                 || element.mozRequestFullScreen
+                 || element.msRequestFullscreen;
+      var bridge = window.__unityFullscreenBridge;
+
+      function reportFailure(error) {
+        console.warn('[Fullscreen] Browser fullscreen request failed.', error || 'Fullscreen API unavailable.');
+        if (bridge && typeof bridge.sendState === 'function') {
+          bridge.sendState(false);
+        }
+      }
+
+      if (!request) {
+        reportFailure('No supported requestFullscreen API was found.');
+        return;
+      }
+
+      try {
+        var result = request.call(element);
+        if (result && typeof result.catch === 'function') {
+          result.catch(reportFailure);
+        }
+      } catch (error) {
+        reportFailure(error);
       }
     },
 
     ExitFullscreen: function () {
-      console.log('[JS] ExitFullscreen called');
       var exit = document.exitFullscreen
               || document.webkitExitFullscreen
               || document.mozCancelFullScreen
               || document.msExitFullscreen;
-      if (exit) {
-        exit.call(document).then(function() {
-          console.log('[JS] Exit fullscreen succeeded');
-        }).catch(function(err) {
-          console.warn('[JS] ExitFullscreen failed:', err);
-        });
-      } else {
-        console.error('[JS] No exit fullscreen API available!');
+      var bridge = window.__unityFullscreenBridge;
+
+      function reportFailure(error) {
+        console.warn('[Fullscreen] Browser fullscreen exit failed.', error || 'Fullscreen API unavailable.');
+        if (bridge && typeof bridge.sendCurrentState === 'function') {
+          bridge.sendCurrentState();
+        }
+      }
+
+      if (!exit) {
+        reportFailure('No supported exitFullscreen API was found.');
+        return;
+      }
+
+      try {
+        var result = exit.call(document);
+        if (result && typeof result.catch === 'function') {
+          result.catch(reportFailure);
+        }
+      } catch (error) {
+        reportFailure(error);
       }
     },
 
     RegisterFullscreenChangeListener: function(gameObjectNamePtr) {
-        var gameObjectName = UTF8ToString(gameObjectNamePtr);
-        console.log('[JS] RegisterFullscreenChangeListener called for GameObject:', gameObjectName);
+      var gameObjectName = UTF8ToString(gameObjectNamePtr);
+      var eventNames = [
+        'fullscreenchange',
+        'webkitfullscreenchange',
+        'mozfullscreenchange',
+        'MSFullscreenChange'
+      ];
+      var bridge = window.__unityFullscreenBridge || {};
 
-        // Helper to check current fullscreen state
-        function isCurrentlyFullscreen() {
-            return !!(document.fullscreenElement || 
-                      document.webkitFullscreenElement || 
-                      document.mozFullScreenElement || 
-                      document.msFullscreenElement);
+      if (bridge.listener) {
+        for (var oldIndex = 0; oldIndex < eventNames.length; oldIndex++) {
+          document.removeEventListener(eventNames[oldIndex], bridge.listener);
         }
+      }
 
-        // Helper to find the Unity instance
-        function getUnityInstance() {
-            if (typeof window.unityInstance !== 'undefined' && window.unityInstance && window.unityInstance.SendMessage) {
-                return window.unityInstance;
-            }
-            if (typeof window.gameInstance !== 'undefined' && window.gameInstance && window.gameInstance.SendMessage) {
-                return window.gameInstance;
-            }
-            if (typeof Module !== 'undefined' && Module && Module.SendMessage) {
-                return Module;
-            }
-            if (typeof unityInstance !== 'undefined' && unityInstance && unityInstance.SendMessage) {
-                return unityInstance;
-            }
-            if (window.parent && window.parent !== window) {
-                if (window.parent.unityInstance && window.parent.unityInstance.SendMessage) {
-                    return window.parent.unityInstance;
-                }
-                if (window.parent.gameInstance && window.parent.gameInstance.SendMessage) {
-                    return window.parent.gameInstance;
-                }
-            }
-            for (var key in window) {
-                try {
-                    if (window.hasOwnProperty(key)) {
-                        var obj = window[key];
-                        if (obj && typeof obj === 'object' && typeof obj.SendMessage === 'function') {
-                            return obj;
-                        }
-                    }
-                } catch(e) {}
-            }
-            return null;
+      bridge.gameObjectName = gameObjectName;
+      bridge.isFullscreen = function () {
+        return !!(document.fullscreenElement
+          || document.webkitFullscreenElement
+          || document.mozFullScreenElement
+          || document.msFullscreenElement);
+      };
+      bridge.sendState = function (isFullscreen) {
+        try {
+          var unityInstance = window.unityInstance;
+          if ((!unityInstance || typeof unityInstance.SendMessage !== 'function')
+              && typeof Module !== 'undefined'
+              && Module
+              && typeof Module.SendMessage === 'function') {
+            unityInstance = Module;
+          }
+
+          if (unityInstance && typeof unityInstance.SendMessage === 'function') {
+            unityInstance.SendMessage(
+              bridge.gameObjectName,
+              'OnFullscreenChanged',
+              isFullscreen ? '1' : '0');
+          } else if (typeof SendMessage === 'function') {
+            SendMessage(
+              bridge.gameObjectName,
+              'OnFullscreenChanged',
+              isFullscreen ? '1' : '0');
+          } else {
+            console.warn('[Fullscreen] Unity instance is not ready; state could not be delivered.');
+          }
+        } catch (error) {
+          console.warn('[Fullscreen] Failed to send state to Unity.', error);
         }
+      };
+      bridge.sendCurrentState = function () {
+        bridge.sendState(bridge.isFullscreen());
+      };
+      bridge.listener = function () {
+        bridge.sendCurrentState();
+      };
 
-        // Send fullscreen state to Unity
-        function sendToUnity(isFS) {
-            try {
-                var instance = getUnityInstance();
-                if (instance && instance.SendMessage) {
-                    instance.SendMessage(gameObjectName, 'OnFullscreenChanged', isFS ? '1' : '0');
-                    console.log('[JS] Sent fullscreen state to Unity: ' + (isFS ? 'EXPANDED' : 'SHRINK'));
-                } else {
-                    console.warn('[JS] Unity instance not available, cannot send');
-                }
-            } catch (err) {
-                console.error('[JS] Error sending message to Unity:', err);
-            }
-        }
+      window.__unityFullscreenBridge = bridge;
 
-        // Fullscreen change callback
-        window._unityFullscreenCallback = function() {
-            var isFS = isCurrentlyFullscreen();
-            console.log('[JS] Fullscreen event fired. State:', isFS ? 'EXPANDED' : 'SHRINK');
-            sendToUnity(isFS);
-        };
+      for (var index = 0; index < eventNames.length; index++) {
+        document.addEventListener(eventNames[index], bridge.listener);
+      }
 
-        // Remove any previously registered listeners to avoid duplicates
-        document.removeEventListener('fullscreenchange',       window._unityFullscreenCallback);
-        document.removeEventListener('webkitfullscreenchange', window._unityFullscreenCallback);
-        document.removeEventListener('mozfullscreenchange',    window._unityFullscreenCallback);
-        document.removeEventListener('MSFullscreenChange',     window._unityFullscreenCallback);
+      bridge.sendCurrentState();
+    },
 
-        // Register listeners for all browser engines
-        document.addEventListener('fullscreenchange',       window._unityFullscreenCallback);
-        document.addEventListener('webkitfullscreenchange', window._unityFullscreenCallback);
-        document.addEventListener('mozfullscreenchange',    window._unityFullscreenCallback);
-        document.addEventListener('MSFullscreenChange',     window._unityFullscreenCallback);
+    UnregisterFullscreenChangeListener: function () {
+      var bridge = window.__unityFullscreenBridge;
+      if (!bridge || !bridge.listener) {
+        return;
+      }
 
-        console.log('[JS] Fullscreen event listeners registered for:', gameObjectName);
+      var eventNames = [
+        'fullscreenchange',
+        'webkitfullscreenchange',
+        'mozfullscreenchange',
+        'MSFullscreenChange'
+      ];
+
+      for (var index = 0; index < eventNames.length; index++) {
+        document.removeEventListener(eventNames[index], bridge.listener);
+      }
+
+      bridge.listener = null;
+      bridge.gameObjectName = null;
+      bridge.sendState = null;
+      bridge.sendCurrentState = null;
     },
 
     RegisterVisibilityChangeListener: function(gameObjectNamePtr) {

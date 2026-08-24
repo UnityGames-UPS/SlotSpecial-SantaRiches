@@ -38,6 +38,7 @@ public class SlotBehaviour : MonoBehaviour
     private const float NormalAllWinBoxesDuration = 2f;
     private const float NormalSingleWinLineDuration = 2f;
     private const float ExtraGiftWildRevealDelay = 2f;
+    private const int ScatterCountForAnticipation = 2;
     private const int DecimalPointSpriteIndex = 10;
     private const int CommaSpriteIndex = 11;
 
@@ -105,6 +106,21 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField, Min(0.01f)] private float stopOvershootDuration = 0.2f;
     [SerializeField, Min(0.01f)] private float stopSettleDuration = 0.3f;
 
+    [Header("Scatter Anticipation")]
+    [Tooltip("Looping anticipation visuals for reels 2, 3, 4, and 5, in that order.")]
+    [SerializeField] private GameObject[] scatterAnticipationObjects =
+        new GameObject[DefaultReelCount - 1];
+    [SerializeField, Min(0f)] private float scatterAnticipationDuration = 3.25f;
+    [SerializeField, Min(0f)] private float scatterAnticipationSoundFadeDuration = 0.25f;
+    [SerializeField, Min(1f)] private float scatterAnticipationSpeedMultiplier = 1.15f;
+
+    [Header("Expanding Santa Presentation")]
+    [Tooltip("Expanding Santa overlays in left-to-right reel order. Leave reels without an overlay empty.")]
+    [SerializeField] private GameObject[] expandingSantaObjects = new GameObject[DefaultReelCount];
+    [SerializeField, Min(1f)] private float expandingSantaFramesPerSecond = 30f;
+    [Tooltip("Zero-based sprite index. Frame 33 maps to Senta Animation_00033.")]
+    [SerializeField, Min(0)] private int expandingSantaLoopStartFrame = 33;
+
     [Header("Win Line Presentation")]
     [SerializeField, Min(0.01f)] private float singleWinLineDuration = 0.7f;
 
@@ -146,6 +162,9 @@ public class SlotBehaviour : MonoBehaviour
     [Header("Audio")]
     [SerializeField] private AudioManager audioManager;
 
+    [Header("Symbol Information Card")]
+    [SerializeField] private SymbolInfoCard symbolInfoCard;
+
     [Header("Behaviour Events (Optional)")]
     [SerializeField] private UnityEvent onSpinStarted = new UnityEvent();
     [SerializeField] private SpinResultEvent onSpinStopped = new SpinResultEvent();
@@ -178,6 +197,9 @@ public class SlotBehaviour : MonoBehaviour
     private readonly List<List<GameObject>> freeSpinWinBoxes = new List<List<GameObject>>();
     private readonly List<List<WinningSymbolAnimationRuntime>> winningSymbolAnimations =
         new List<List<WinningSymbolAnimationRuntime>>();
+    private readonly Dictionary<int, ExpandingSantaAnimationRuntime> expandingSantaAnimations =
+        new Dictionary<int, ExpandingSantaAnimationRuntime>();
+    private readonly HashSet<int> activeExpandedSantaColumns = new HashSet<int>();
     private bool serverSymbolMappingActive;
 
     internal List<List<int>> currentDisplayMatrix;
@@ -189,6 +211,7 @@ public class SlotBehaviour : MonoBehaviour
 
     private Coroutine spinRoutine;
     private Coroutine winAnimationRoutine;
+    private Coroutine expandingSantaLoopRoutine;
     private Tween winAmountTween;
     private Tween reelWinAmountTween;
     private Tween freeSpinStartSymbolTween;
@@ -234,6 +257,15 @@ public class SlotBehaviour : MonoBehaviour
         internal Image staticSymbol;
     }
 
+    private sealed class ExpandingSantaAnimationRuntime
+    {
+        internal int columnIndex;
+        internal GameObject root;
+        internal Image renderer;
+        internal ImageAnimation animation;
+        internal List<Sprite> frames;
+    }
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeController()
     {
@@ -261,6 +293,8 @@ public class SlotBehaviour : MonoBehaviour
         BindGameManagerEvents();
         BuildReelCache();
         BuildFreeSpinWinBoxCache();
+        BuildExpandingSantaAnimationCache();
+        ResolveScatterAnticipationReferences();
         HideAllWinLineVisuals();
         HideFreeSpinWinBoxes();
         HideReelWinAmounts();
@@ -304,6 +338,10 @@ public class SlotBehaviour : MonoBehaviour
     private void ResolveSceneReferences()
     {
         audioManager = audioManager != null ? audioManager : FindSceneComponent<AudioManager>();
+        symbolInfoCard = symbolInfoCard != null
+            ? symbolInfoCard
+            : FindNamedComponent<SymbolInfoCard>("Info Card");
+        symbolInfoCard?.HideCard();
         TotalWin_text = TotalWin_text != null ? TotalWin_text : FindNamedText("WinAmount", "TotalWin");
         winLabelText = winLabelText != null ? winLabelText : FindNamedText("WinText");
         goodLuckText = goodLuckText != null ? goodLuckText : FindNamedText("GoodLuckText");
@@ -783,6 +821,150 @@ public class SlotBehaviour : MonoBehaviour
         }
     }
 
+    private void BuildExpandingSantaAnimationCache()
+    {
+        expandingSantaAnimations.Clear();
+        EnsureExpandingSantaReferenceArray();
+
+        List<Transform> unassignedOverlays = freeSpinWinBoxesRoot != null
+            ? freeSpinWinBoxesRoot
+                .GetComponentsInChildren<Transform>(true)
+                .Where(candidate =>
+                    candidate != null &&
+                    candidate.name.Trim().StartsWith(
+                        "Expanding Santa Animations",
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderBy(candidate => candidate is RectTransform rect
+                    ? rect.anchoredPosition.x
+                    : candidate.localPosition.x)
+                .ToList()
+            : new List<Transform>();
+
+        int[] defaultOverlayColumns = { 1, 3 };
+        for (int overlayIndex = 0;
+             overlayIndex < unassignedOverlays.Count && overlayIndex < defaultOverlayColumns.Length;
+             overlayIndex++)
+        {
+            int columnIndex = defaultOverlayColumns[overlayIndex];
+            if (expandingSantaObjects[columnIndex] == null)
+            {
+                expandingSantaObjects[columnIndex] = unassignedOverlays[overlayIndex].gameObject;
+            }
+        }
+
+        for (int columnIndex = 0; columnIndex < expandingSantaObjects.Length; columnIndex++)
+        {
+            GameObject root = expandingSantaObjects[columnIndex];
+            if (root == null)
+            {
+                continue;
+            }
+
+            ImageAnimation animation = root.GetComponentInChildren<ImageAnimation>(true);
+            Image renderer = animation != null
+                ? animation.rendererDelegate ?? animation.GetComponent<Image>()
+                : null;
+            if (animation == null || renderer == null ||
+                animation.textureArray == null || animation.textureArray.Count == 0)
+            {
+                Debug.LogWarning(
+                    $"[SlotBehaviour] Expanding Santa overlay for reel {columnIndex + 1} " +
+                    "needs an ImageAnimation with frames and an Image renderer.",
+                    root);
+                root.SetActive(false);
+                continue;
+            }
+
+            animation.rendererDelegate = renderer;
+            animation.StopAnimation();
+            expandingSantaAnimations[columnIndex] = new ExpandingSantaAnimationRuntime
+            {
+                columnIndex = columnIndex,
+                root = root,
+                renderer = renderer,
+                animation = animation,
+                frames = new List<Sprite>(animation.textureArray)
+            };
+            root.SetActive(false);
+        }
+    }
+
+    private void EnsureExpandingSantaReferenceArray()
+    {
+        if (expandingSantaObjects != null &&
+            expandingSantaObjects.Length == DefaultReelCount)
+        {
+            return;
+        }
+
+        GameObject[] previousReferences = expandingSantaObjects;
+        expandingSantaObjects = new GameObject[DefaultReelCount];
+        if (previousReferences != null)
+        {
+            Array.Copy(
+                previousReferences,
+                expandingSantaObjects,
+                Mathf.Min(previousReferences.Length, expandingSantaObjects.Length));
+        }
+    }
+
+    private void ResolveScatterAnticipationReferences()
+    {
+        const int anticipationReelCount = DefaultReelCount - 1;
+        if (scatterAnticipationObjects == null ||
+            scatterAnticipationObjects.Length != anticipationReelCount)
+        {
+            GameObject[] previousReferences = scatterAnticipationObjects;
+            scatterAnticipationObjects = new GameObject[anticipationReelCount];
+            if (previousReferences != null)
+            {
+                Array.Copy(
+                    previousReferences,
+                    scatterAnticipationObjects,
+                    Mathf.Min(previousReferences.Length, scatterAnticipationObjects.Length));
+            }
+        }
+
+        for (int anticipationIndex = 0; anticipationIndex < anticipationReelCount; anticipationIndex++)
+        {
+            if (scatterAnticipationObjects[anticipationIndex] == null)
+            {
+                int reelNumber = anticipationIndex + 2;
+                scatterAnticipationObjects[anticipationIndex] =
+                    FindSceneObject($"Anticipation{GetOrdinalReelName(reelNumber)}Slot");
+            }
+
+            GameObject visual = scatterAnticipationObjects[anticipationIndex];
+            if (visual == null)
+            {
+                Debug.LogWarning(
+                    $"[SlotBehaviour] Anticipation visual for reel {anticipationIndex + 2} was not found.",
+                    this);
+                continue;
+            }
+
+            Image image = visual.GetComponent<Image>();
+            if (image != null)
+            {
+                image.raycastTarget = false;
+            }
+
+            visual.GetComponent<ImageAnimation>()?.StopAnimation();
+            visual.SetActive(false);
+        }
+    }
+
+    private static string GetOrdinalReelName(int reelNumber)
+    {
+        switch (reelNumber)
+        {
+            case 2: return "2nd";
+            case 3: return "3rd";
+            case 4: return "4th";
+            default: return "5th";
+        }
+    }
+
     private static float CalculateSymbolPitch(RectTransform reelTransform)
     {
         float height = 200f;
@@ -847,6 +1029,7 @@ public class SlotBehaviour : MonoBehaviour
 
     internal void HideSymbolInfoCard()
     {
+        symbolInfoCard?.HideCard();
         onSymbolInfoDismissed?.Invoke();
     }
 
@@ -872,6 +1055,7 @@ public class SlotBehaviour : MonoBehaviour
         int symbolId = matrixColumn[row];
         if (symbolId >= 0)
         {
+            symbolInfoCard?.ShowCard(symbolId, column, row, symbolRect, gameManager);
             onSymbolSelected?.Invoke(symbolId, column, row);
         }
     }
@@ -1433,6 +1617,7 @@ public class SlotBehaviour : MonoBehaviour
     private IEnumerator AbortSpin(string reason)
     {
         Debug.LogError($"[SlotBehaviour] {reason}");
+        StopAllScatterAnticipationVisuals();
         KillReelTweens(true);
 
         IsSpinning = false;
@@ -1492,22 +1677,40 @@ public class SlotBehaviour : MonoBehaviour
         float overshootDuration = stopOvershootDuration * timingScale;
         float settleDuration = stopSettleDuration * timingScale;
 
+        int completedReelStops = 0;
+        int stoppedScatterCount = 0;
+        float nextReelDelay = 0f;
         for (int reelIndex = 0; reelIndex < reels.Count; reelIndex++)
         {
+            if (reelIndex > 0)
+            {
+                nextReelDelay += stopInterval;
+            }
+
+            bool shouldAnticipate = !quickStop &&
+                stoppedScatterCount == ScatterCountForAnticipation;
+            float anticipationDuration = shouldAnticipate
+                ? scatterAnticipationDuration * (turboStop ? timingScale : 1f)
+                : 0f;
+
             StartCoroutine(StopSingleReel(
                 reelIndex,
                 resultMatrix[reelIndex],
-                reelIndex * stopInterval,
+                nextReelDelay,
+                anticipationDuration,
                 quickStop,
                 overshoot,
                 overshootDuration,
-                settleDuration));
+                settleDuration,
+                () => completedReelStops++));
+
+            nextReelDelay += anticipationDuration;
+            stoppedScatterCount += CountScatterSymbols(resultMatrix[reelIndex]);
         }
 
-        float completeAfter = Math.Max(0, reels.Count - 1) * stopInterval + overshootDuration + settleDuration;
-        if (completeAfter > 0f)
+        while (completedReelStops < reels.Count)
         {
-            yield return new WaitForSecondsRealtime(completeAfter);
+            yield return null;
         }
 
         // Let the last reel's completion callback start its Moon animation
@@ -1531,10 +1734,12 @@ public class SlotBehaviour : MonoBehaviour
         int reelIndex,
         List<int> resultColumn,
         float delay,
+        float anticipationDuration,
         bool quickStop,
         float overshoot,
         float overshootDuration,
-        float settleDuration)
+        float settleDuration,
+        Action onComplete)
     {
         if (delay > 0f)
         {
@@ -1542,6 +1747,11 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         ReelRuntime reel = reels[reelIndex];
+        if (anticipationDuration > 0f)
+        {
+            yield return PlayScatterAnticipation(reelIndex, anticipationDuration);
+        }
+
         reel.motionTween?.Kill();
         reel.motionTween = null;
 
@@ -1570,6 +1780,139 @@ public class SlotBehaviour : MonoBehaviour
         {
             audioManager?.PlayMoonLand();
             StartCoroutine(PlayMoonLandingAnimations(reelIndex, resultColumn));
+        }
+
+        onComplete?.Invoke();
+    }
+
+    private int CountScatterSymbols(IReadOnlyList<int> resultColumn)
+    {
+        if (resultColumn == null || gameConfig == null)
+        {
+            return 0;
+        }
+
+        int visibleRows = Mathf.Min(GetRowCount(), resultColumn.Count);
+        int scatterCount = 0;
+        for (int rowIndex = 0; rowIndex < visibleRows; rowIndex++)
+        {
+            if (resultColumn[rowIndex] == gameConfig.scatterSymbolId)
+            {
+                scatterCount++;
+            }
+        }
+
+        return scatterCount;
+    }
+
+    private IEnumerator PlayScatterAnticipation(int reelIndex, float duration)
+    {
+        if (duration <= 0f || reelIndex <= 0 || reelIndex >= reels.Count)
+        {
+            yield break;
+        }
+
+        ReelRuntime reel = reels[reelIndex];
+        Tween reelMotion = reel.motionTween;
+        float previousTimeScale = reelMotion != null && reelMotion.IsActive()
+            ? reelMotion.timeScale
+            : 1f;
+        if (reelMotion != null && reelMotion.IsActive())
+        {
+            reelMotion.timeScale = previousTimeScale * Mathf.Max(1f, scatterAnticipationSpeedMultiplier);
+        }
+
+        audioManager?.PlayAnticipation();
+
+        GameObject visual = GetScatterAnticipationVisual(reelIndex);
+        ImageAnimation animation = visual != null ? visual.GetComponent<ImageAnimation>() : null;
+        if (visual != null)
+        {
+            if (freeSpinWinBoxesRoot != null)
+            {
+                freeSpinWinBoxesRoot.gameObject.SetActive(true);
+            }
+            else if (visual.transform.parent != null)
+            {
+                visual.transform.parent.gameObject.SetActive(true);
+            }
+
+            visual.SetActive(true);
+            if (animation != null && animation.rendererDelegate != null &&
+                animation.textureArray != null && animation.textureArray.Count > 0)
+            {
+                animation.doLoopAnimation = true;
+                animation.StopAnimation();
+                animation.StartAnimation();
+            }
+        }
+
+        float anticipationEndsAt = Time.realtimeSinceStartup + duration;
+        float fadeDuration = Mathf.Min(scatterAnticipationSoundFadeDuration, duration);
+        float anticipationFadeStartsAt = anticipationEndsAt - fadeDuration;
+        bool isSoundFading = false;
+        while (!shuttingDown && !stopSpinRequested &&
+               Time.realtimeSinceStartup < anticipationEndsAt)
+        {
+            if (!isSoundFading && fadeDuration > 0f &&
+                Time.realtimeSinceStartup >= anticipationFadeStartsAt)
+            {
+                isSoundFading = true;
+                audioManager?.FadeOutAnticipation(fadeDuration);
+            }
+
+            yield return null;
+        }
+
+        StopScatterAnticipationVisual(reelIndex);
+        if (reelMotion != null && reelMotion.IsActive())
+        {
+            reelMotion.timeScale = previousTimeScale;
+        }
+    }
+
+    private GameObject GetScatterAnticipationVisual(int reelIndex)
+    {
+        int anticipationIndex = reelIndex - 1;
+        return scatterAnticipationObjects != null &&
+               anticipationIndex >= 0 && anticipationIndex < scatterAnticipationObjects.Length
+            ? scatterAnticipationObjects[anticipationIndex]
+            : null;
+    }
+
+    private void StopScatterAnticipationVisual(int reelIndex)
+    {
+        audioManager?.StopAnticipation();
+
+        GameObject visual = GetScatterAnticipationVisual(reelIndex);
+        if (visual == null)
+        {
+            return;
+        }
+
+        visual.GetComponent<ImageAnimation>()?.StopAnimation();
+        visual.SetActive(false);
+        RefreshWinAnimationRootVisibility();
+    }
+
+    private void StopAllScatterAnticipationVisuals()
+    {
+        audioManager?.StopAnticipation();
+
+        if (scatterAnticipationObjects == null)
+        {
+            return;
+        }
+
+        foreach (GameObject visual in scatterAnticipationObjects)
+        {
+            if (visual == null)
+            {
+                continue;
+            }
+
+            visual.GetComponent<ImageAnimation>()?.StopAnimation();
+            visual.SetActive(false);
         }
     }
 
@@ -1792,6 +2135,8 @@ public class SlotBehaviour : MonoBehaviour
         // result presentation can report completion in this same frame.
         yield return null;
 
+        yield return PlayExpandingSantaIntro(result);
+
         bool triggersFreeGames = result?.freeSpinData != null &&
             result.freeSpinData.isTriggered &&
             result.freeSpinData.spinsAwarded > 0;
@@ -1824,6 +2169,147 @@ public class SlotBehaviour : MonoBehaviour
         autoplayRoundInProgress = false;
         winAnimationRoutine = null;
         CompleteRequiredResultPresentation();
+    }
+
+    private IEnumerator PlayExpandingSantaIntro(SpinResult result)
+    {
+        List<ExpandingSantaAnimationRuntime> activeRuntimes =
+            GetExpandingSantaColumns(result)
+                .Select(columnIndex => expandingSantaAnimations[columnIndex])
+                .Where(runtime => runtime?.root != null && runtime.renderer != null &&
+                    runtime.frames != null && runtime.frames.Any(frame => frame != null))
+                .ToList();
+        if (activeRuntimes.Count == 0)
+        {
+            yield break;
+        }
+
+        HideAllWinLineVisuals();
+        HideFreeSpinWinBoxes();
+        activeExpandedSantaColumns.Clear();
+        foreach (ExpandingSantaAnimationRuntime runtime in activeRuntimes)
+        {
+            activeExpandedSantaColumns.Add(runtime.columnIndex);
+        }
+
+        if (freeSpinWinBoxesRoot != null)
+        {
+            freeSpinWinBoxesRoot.gameObject.SetActive(true);
+        }
+
+        foreach (ExpandingSantaAnimationRuntime runtime in activeRuntimes)
+        {
+            runtime.animation?.StopAnimation();
+            runtime.root.SetActive(true);
+            runtime.renderer.enabled = true;
+            Color rendererColor = runtime.renderer.color;
+            runtime.renderer.color = new Color(
+                rendererColor.r,
+                rendererColor.g,
+                rendererColor.b,
+                1f);
+        }
+
+        int introFrameCount = activeRuntimes.Max(runtime => runtime.frames.Count);
+        WaitForSecondsRealtime frameDelay = new WaitForSecondsRealtime(
+            1f / Mathf.Max(1f, expandingSantaFramesPerSecond));
+        for (int frameIndex = 0;
+             frameIndex < introFrameCount && !shuttingDown && !IsSpinning;
+             frameIndex++)
+        {
+            foreach (ExpandingSantaAnimationRuntime runtime in activeRuntimes)
+            {
+                if (frameIndex < runtime.frames.Count && runtime.frames[frameIndex] != null)
+                {
+                    runtime.renderer.sprite = runtime.frames[frameIndex];
+                }
+            }
+
+            yield return frameDelay;
+        }
+
+        if (shuttingDown || IsSpinning || activeExpandedSantaColumns.Count == 0)
+        {
+            yield break;
+        }
+
+        expandingSantaLoopRoutine = StartCoroutine(LoopExpandingSantaFrames());
+    }
+
+    private HashSet<int> GetExpandingSantaColumns(SpinResult result)
+    {
+        HashSet<int> columns = new HashSet<int>();
+        if (result?.expandedWildReels != null)
+        {
+            foreach (int columnIndex in result.expandedWildReels)
+            {
+                if (expandingSantaAnimations.ContainsKey(columnIndex))
+                {
+                    columns.Add(columnIndex);
+                }
+            }
+        }
+
+        if (result?.expandedWilds != null)
+        {
+            foreach (ServerExpandedWild expandedWild in result.expandedWilds)
+            {
+                if (expandedWild != null &&
+                    expandingSantaAnimations.ContainsKey(expandedWild.col))
+                {
+                    columns.Add(expandedWild.col);
+                }
+            }
+        }
+
+        return columns;
+    }
+
+    private IEnumerator LoopExpandingSantaFrames()
+    {
+        WaitForSecondsRealtime frameDelay = new WaitForSecondsRealtime(
+            1f / Mathf.Max(1f, expandingSantaFramesPerSecond));
+        while (!shuttingDown && !IsSpinning && activeExpandedSantaColumns.Count > 0)
+        {
+            List<ExpandingSantaAnimationRuntime> activeRuntimes =
+                activeExpandedSantaColumns
+                    .Where(expandingSantaAnimations.ContainsKey)
+                    .Select(columnIndex => expandingSantaAnimations[columnIndex])
+                    .Where(runtime => runtime?.frames != null && runtime.frames.Count > 0)
+                    .ToList();
+            if (activeRuntimes.Count == 0)
+            {
+                break;
+            }
+
+            int longestLoopFrameCount = activeRuntimes.Max(runtime =>
+                runtime.frames.Count - Mathf.Clamp(
+                    expandingSantaLoopStartFrame,
+                    0,
+                    runtime.frames.Count - 1));
+            for (int loopOffset = 0;
+                 loopOffset < longestLoopFrameCount &&
+                 !shuttingDown && !IsSpinning && activeExpandedSantaColumns.Count > 0;
+                 loopOffset++)
+            {
+                foreach (ExpandingSantaAnimationRuntime runtime in activeRuntimes)
+                {
+                    int loopStart = Mathf.Clamp(
+                        expandingSantaLoopStartFrame,
+                        0,
+                        runtime.frames.Count - 1);
+                    int frameIndex = loopStart + loopOffset;
+                    if (frameIndex < runtime.frames.Count && runtime.frames[frameIndex] != null)
+                    {
+                        runtime.renderer.sprite = runtime.frames[frameIndex];
+                    }
+                }
+
+                yield return frameDelay;
+            }
+        }
+
+        expandingSantaLoopRoutine = null;
     }
 
     private IEnumerator PlayFreeSpinWinBoxes(SpinResult result)
@@ -2100,7 +2586,10 @@ public class SlotBehaviour : MonoBehaviour
             }
         }
 
-        freeSpinWinBoxesRoot.gameObject.SetActive(showedAnyVisual);
+        if (!showedAnyVisual)
+        {
+            RefreshWinAnimationRootVisibility();
+        }
     }
 
     private static void RestartWinBoxAnimation(GameObject winBox)
@@ -2134,6 +2623,11 @@ public class SlotBehaviour : MonoBehaviour
         float animationDuration,
         List<Sprite> overrideFrames = null)
     {
+        if (activeExpandedSantaColumns.Contains(columnIndex))
+        {
+            return false;
+        }
+
         if (currentDisplayMatrix == null ||
             columnIndex < 0 || columnIndex >= winningSymbolAnimations.Count ||
             rowIndex < 0 || rowIndex >= winningSymbolAnimations[columnIndex].Count ||
@@ -2220,7 +2714,13 @@ public class SlotBehaviour : MonoBehaviour
         bool hasActiveSymbolAnimation = winningSymbolAnimations
             .SelectMany(column => column)
             .Any(runtime => runtime?.root != null && runtime.root.activeSelf);
-        freeSpinWinBoxesRoot.gameObject.SetActive(hasActiveWinBox || hasActiveSymbolAnimation);
+        bool hasActiveAnticipation = scatterAnticipationObjects != null &&
+            scatterAnticipationObjects.Any(visual => visual != null && visual.activeSelf);
+        bool hasActiveExpandingSanta = expandingSantaAnimations.Values
+            .Any(runtime => runtime?.root != null && runtime.root.activeSelf);
+        freeSpinWinBoxesRoot.gameObject.SetActive(
+            hasActiveWinBox || hasActiveSymbolAnimation ||
+            hasActiveAnticipation || hasActiveExpandingSanta);
     }
 
     private bool TryGetWinAnimation(
@@ -2466,6 +2966,8 @@ public class SlotBehaviour : MonoBehaviour
 
     private void HideFreeSpinWinBoxes()
     {
+        StopAllScatterAnticipationVisuals();
+
         foreach (List<GameObject> column in freeSpinWinBoxes)
         {
             foreach (GameObject winBox in column)
@@ -2497,7 +2999,7 @@ public class SlotBehaviour : MonoBehaviour
             }
         }
 
-        if (freeSpinWinBoxesRoot != null) freeSpinWinBoxesRoot.gameObject.SetActive(false);
+        RefreshWinAnimationRootVisibility();
     }
 
     private void ReportMissingWinLineVisual(int resultLineId)
@@ -2519,9 +3021,29 @@ public class SlotBehaviour : MonoBehaviour
             winAnimationRoutine = null;
         }
 
+        StopAllExpandingSantaAnimations();
         HideAllWinLineVisuals();
         HideFreeSpinWinBoxes();
         HideReelWinAmounts();
+    }
+
+    private void StopAllExpandingSantaAnimations()
+    {
+        if (expandingSantaLoopRoutine != null)
+        {
+            StopCoroutine(expandingSantaLoopRoutine);
+            expandingSantaLoopRoutine = null;
+        }
+
+        activeExpandedSantaColumns.Clear();
+        foreach (ExpandingSantaAnimationRuntime runtime in expandingSantaAnimations.Values)
+        {
+            runtime?.animation?.StopAnimation();
+            if (runtime?.root != null)
+            {
+                runtime.root.SetActive(false);
+            }
+        }
     }
 
     private void SetWinAmount(double amount, bool animate, int decimalPlaces, double startAmount = 0d)
