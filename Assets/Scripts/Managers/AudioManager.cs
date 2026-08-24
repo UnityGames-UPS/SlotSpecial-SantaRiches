@@ -23,6 +23,7 @@ public sealed class AudioManager : MonoBehaviour
 
     [Header("Music")]
     [SerializeField] private AudioClip backgroundMusicClip;
+    [SerializeField] private AudioClip freeGamesMusicClip;
 
     [Header("UI Sounds")]
     [FormerlySerializedAs("normalClickClip")]
@@ -33,8 +34,6 @@ public sealed class AudioManager : MonoBehaviour
     [SerializeField] private AudioClip maximumBetClip;
     [FormerlySerializedAs("turboClickClip")]
     [SerializeField] private AudioClip turboButtonClip;
-    [FormerlySerializedAs("spinClickClip")]
-    [SerializeField] private AudioClip spinButtonClip;
     [SerializeField] private AudioClip freeSpinButtonClip;
 
     [Header("Reel and Feature Sounds")]
@@ -59,6 +58,7 @@ public sealed class AudioManager : MonoBehaviour
     private readonly List<AudioSource> allSources = new List<AudioSource>();
     private readonly Dictionary<AudioSource, bool> preFocusMuteState = new Dictionary<AudioSource, bool>();
     private bool isForceMuted;
+    private bool useFreeGamesMusic;
 
     private void Awake()
     {
@@ -135,17 +135,32 @@ public sealed class AudioManager : MonoBehaviour
 
     internal void PlayBackgroundMusic()
     {
-        if (!MusicEnabled || MusicVolume <= 0f || musicSource == null || backgroundMusicClip == null)
+        useFreeGamesMusic = false;
+        PlaySelectedMusic();
+    }
+
+    internal void PlayFreeGamesMusic()
+    {
+        useFreeGamesMusic = true;
+        PlaySelectedMusic();
+    }
+
+    private void PlaySelectedMusic()
+    {
+        AudioClip selectedClip = useFreeGamesMusic && freeGamesMusicClip != null
+            ? freeGamesMusicClip
+            : backgroundMusicClip;
+        if (!MusicEnabled || MusicVolume <= 0f || musicSource == null || selectedClip == null)
         {
             return;
         }
 
-        if (musicSource.isPlaying && musicSource.clip == backgroundMusicClip)
+        if (musicSource.isPlaying && musicSource.clip == selectedClip)
         {
             return;
         }
 
-        musicSource.clip = backgroundMusicClip;
+        musicSource.clip = selectedClip;
         musicSource.loop = true;
         musicSource.Play();
     }
@@ -163,8 +178,6 @@ public sealed class AudioManager : MonoBehaviour
     internal void PlayBetChange() => PlayUiSound(betButtonClip);
     internal void PlayMaxBet() => PlayUiSound(maximumBetClip);
     internal void PlayTurboClick() => PlayUiSound(turboButtonClip);
-    internal void PlaySpinButton() => PlayUiSound(spinButtonClip);
-    internal void PlaySpinClick() => PlaySpinButton();
     internal void PlayFreeSpinButton() => PlayUiSound(freeSpinButtonClip);
 
     internal void PlayReelStop() => PlayGameplaySound(reelStopClip);
@@ -288,7 +301,7 @@ public sealed class AudioManager : MonoBehaviour
 
         if (MusicEnabled && MusicVolume > 0f)
         {
-            PlayBackgroundMusic();
+            PlaySelectedMusic();
         }
         else
         {

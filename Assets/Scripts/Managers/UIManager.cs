@@ -829,6 +829,7 @@ public class UIManager : MonoBehaviour
 
         transition.AppendCallback(() =>
         {
+            audioManager?.PlayBackgroundMusic();
             onBlackout?.Invoke();
             if (freeSpinPanel != null) freeSpinPanel.SetActive(false);
             SetFreeSpinCountPanelVisible(false);
@@ -931,6 +932,7 @@ public class UIManager : MonoBehaviour
 
     internal void ResetFreeSpinPresentation()
     {
+        audioManager?.PlayBackgroundMusic();
         CancelFreeSpinTotalWinCount();
         CancelFreeSpinCollectTransition();
         CancelFreeSpinOfferTransition();
@@ -1194,9 +1196,9 @@ public class UIManager : MonoBehaviour
 
         infoBackButton = ResolveChildButton(infoBackButton, infoPanel, "Back", "InfoBack");
         guideBackButton = ResolveChildButton(guideBackButton, guidePanel, "Back", "GuideBack");
-        soundCloseButton = ResolveChildButton(soundCloseButton, soundPanel, "Back", "Close", "SoundBack");
-        musicSlider = ResolveChildComponent(musicSlider, soundPanel, "MusicSlider");
-        sfxSlider = ResolveChildComponent(sfxSlider, soundPanel, "SfxSlider", "SFXSlider");
+        soundCloseButton = ResolveChildButton(soundCloseButton, soundPanel, "Back", "Close", "SoundBack", "BackButton");
+        musicSlider = ResolveChildComponent(musicSlider, soundPanel, "MusicSlider", "Music Slider");
+        sfxSlider = ResolveChildComponent(sfxSlider, soundPanel, "SfxSlider", "SFXSlider", "SoundSlider", "Sound Slider");
         musicToggle = ResolveChildComponent(musicToggle, soundPanel, "MusicToggle");
         sfxToggle = ResolveChildComponent(sfxToggle, soundPanel, "SfxToggle", "SFXToggle");
 
@@ -1355,7 +1357,14 @@ public class UIManager : MonoBehaviour
 
         menuOpen = (menuPanel != null && menuPanel.activeSelf) ||
             (portraitMenuPanel != null && portraitMenuPanel.activeSelf);
-        soundOpen = soundPanel != null && soundPanel.activeSelf;
+        if (soundPanel != null)
+        {
+            soundPanel.transform.localScale = Vector3.one;
+            soundPanel.SetActive(false);
+            SetCanvasInteraction(soundCanvasGroup, false);
+        }
+
+        soundOpen = false;
         if (freeSpinPanel != null)
         {
             freeSpinPanel.transform.localScale = Vector3.one;
@@ -1389,6 +1398,7 @@ public class UIManager : MonoBehaviour
         CancelFreeSpinOfferTransition();
         if (freeSpinPanel == null)
         {
+            audioManager?.PlayFreeGamesMusic();
             SetFreeSpinCountPanelVisible(true);
             freeSpinStarFountain?.PlayStarBurst();
             return;
@@ -1399,6 +1409,7 @@ public class UIManager : MonoBehaviour
         EnsureFreeSpinTransitionOverlay();
         if (freeSpinTransitionOverlay == null)
         {
+            audioManager?.PlayFreeGamesMusic();
             SetFreeSpinCountPanelVisible(true);
             freeSpinPanel.SetActive(true);
             freeSpinStarFountain?.PlayStarBurst();
@@ -1432,6 +1443,7 @@ public class UIManager : MonoBehaviour
             freeSpinTransitionOverlay
                 .DOFade(1f, Mathf.Max(MinimumFreeSpinOfferFadeDuration, freeSpinFadeToBlackDuration))
                 .SetEase(Ease.Linear));
+        transition.AppendCallback(() => audioManager?.PlayFreeGamesMusic());
         transition.AppendInterval(Mathf.Max(1f, freeSpinBlackHoldDuration));
         transition.AppendCallback(() =>
         {
@@ -1834,17 +1846,14 @@ public class UIManager : MonoBehaviour
 
     private void HandleStopClick()
     {
-        if (!IsBlockingInteraction && gameManager != null && gameManager.RequestStopSpin())
-        {
-            audioManager?.PlaySpinButton();
-        }
+        if (IsBlockingInteraction || gameManager == null) return;
+        gameManager.RequestStopSpin();
     }
 
     private void HandleAutoplayStopClick()
     {
         if (IsBlockingInteraction || gameManager == null) return;
         gameManager.StopAutoSpin();
-        audioManager?.PlaySpinButton();
     }
 
     private void HandleFreeSpinStartClick()
@@ -1896,7 +1905,6 @@ public class UIManager : MonoBehaviour
         }
 
         HideAutoplayPanel();
-        audioManager?.PlaySpinButton();
     }
 
     private static string FormatAutoplayCount(int count)
@@ -2392,7 +2400,7 @@ public class UIManager : MonoBehaviour
 
     private static string BuildInfoColumnText(IEnumerable<string> values)
     {
-        return string.Join("\n\n    ", values);
+        return string.Join("\n", values);
     }
 
     private static string FormatInfoNumber(double value)

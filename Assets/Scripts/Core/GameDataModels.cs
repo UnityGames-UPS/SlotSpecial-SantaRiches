@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 #region Server Communication Models
 
@@ -92,7 +93,7 @@ public class ServerSymbolInfo
     public int id;
     public string name;
     public List<double> multiplier; // Keep for fallback compatibility
-    public List<double> payout;
+    public JToken payout;
     public string description;
     public int minMatch;
 }
@@ -685,10 +686,13 @@ public static class InitDataConverter
                 minMatch = serverSymbol.minMatch
             };
 
-            List<double> payoutValues = serverSymbol.payout != null && serverSymbol.payout.Count > 0
-                ? serverSymbol.payout
-                : serverSymbol.multiplier;
-            PopulateSymbolPaytable(symbolInfo, payoutValues, config.reelCount);
+            if (!TryPopulateKeyedSymbolPaytable(symbolInfo, serverSymbol.payout, config.reelCount))
+            {
+                List<double> payoutValues = serverSymbol.payout is JArray payoutArray
+                    ? payoutArray.Values<double>().ToList()
+                    : serverSymbol.multiplier;
+                PopulateSymbolPaytable(symbolInfo, payoutValues, config.reelCount);
+            }
             config.symbols.Add(symbolInfo);
 
             if (symbolInfo.isWild)
@@ -746,6 +750,50 @@ public static class InitDataConverter
         }
 
         return config;
+    }
+
+    private static bool TryPopulateKeyedSymbolPaytable(
+        SymbolInfo symbol,
+        JToken payoutToken,
+        int reelCount)
+    {
+        if (symbol == null || !(payoutToken is JObject payoutObject))
+        {
+            return false;
+        }
+
+        int safeReelCount = Math.Max(1, reelCount);
+        var keyedPayouts = new List<KeyValuePair<int, double>>();
+        foreach (JProperty property in payoutObject.Properties())
+        {
+            if (!int.TryParse(property.Name, out int matchCount) ||
+                matchCount < 1 || matchCount > safeReelCount ||
+                (property.Value.Type != JTokenType.Integer && property.Value.Type != JTokenType.Float))
+            {
+                continue;
+            }
+
+            double value = property.Value.Value<double>();
+            if (!double.IsNaN(value) && !double.IsInfinity(value))
+            {
+                keyedPayouts.Add(new KeyValuePair<int, double>(matchCount, value));
+            }
+        }
+
+        if (keyedPayouts.Count == 0)
+        {
+            return false;
+        }
+
+        keyedPayouts.Sort((left, right) => left.Key.CompareTo(right.Key));
+        symbol.minMatch = keyedPayouts[0].Key;
+        for (int index = keyedPayouts.Count - 1; index >= 0; index--)
+        {
+            symbol.matchCounts.Add(keyedPayouts[index].Key);
+            symbol.multipliers.Add(keyedPayouts[index].Value);
+        }
+
+        return true;
     }
 
     private static void PopulateSymbolPaytable(
