@@ -6,22 +6,30 @@
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
   <title>SlotSpecial-SantaRiches</title>
   <style>
+    html,
     body,
-    html {
+    #unity-container,
+    #unity-canvas {
       margin: 0;
       padding: 0;
-      overflow: hidden;
-      height: 100%;
       width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      height: 100%;
+      overflow: hidden;
       background-color: black;
     }
 
+    body {
+      position: fixed;
+      inset: 0;
+    }
+
+    #unity-container {
+      position: fixed;
+      inset: 0;
+    }
+
     #unity-canvas {
-      height: 100%;
-      width: 100%;
+      display: block;
     }
 
     #loading-screen {
@@ -34,8 +42,11 @@
 
 <body>
 
-  <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+  </div>
   <script>
+    const container = document.querySelector("#unity-container");
     const canvas = document.querySelector("#unity-canvas");
 
     function resizeCanvas() {
@@ -48,14 +59,25 @@
       document.documentElement.style.height = h + "px";
       document.body.style.width = w + "px";
       document.body.style.height = h + "px";
+      container.style.width = w + "px";
+      container.style.height = h + "px";
       canvas.style.width = w + "px";
       canvas.style.height = h + "px";
     }
 
+    function scheduleCanvasResize() {
+      resizeCanvas();
+      window.requestAnimationFrame(resizeCanvas);
+    }
+
     window.addEventListener('resize', resizeCanvas);
-    window.addEventListener('orientationchange', resizeCanvas);
+    window.addEventListener('orientationchange', scheduleCanvasResize);
+    document.addEventListener('fullscreenchange', scheduleCanvasResize);
+    document.addEventListener('webkitfullscreenchange', scheduleCanvasResize);
+    document.addEventListener('mozfullscreenchange', scheduleCanvasResize);
+    document.addEventListener('MSFullscreenChange', scheduleCanvasResize);
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', resizeCanvas);
+      window.visualViewport.addEventListener('resize', scheduleCanvasResize);
       window.visualViewport.addEventListener('scroll', function () { window.scrollTo(0, 0); });
     }
     // Scroll-lock: CSS touch-action alone won't stop iOS pinch-pan; non-passive touchmove does.
@@ -83,13 +105,19 @@
     script.onload = () => {
       createUnityInstance(canvas, config, (progress) => {
       }).then((unityInstance) => {
+        window.unityInstance = unityInstance;
+        if (window.__unityFullscreenBridge
+          && typeof window.__unityFullscreenBridge.sendCurrentState === 'function') {
+          window.__unityFullscreenBridge.sendCurrentState();
+        }
+        scheduleCanvasResize();
       }).catch((message) => {
         alert(message);
       });
     };
 
     document.body.appendChild(script);
-    window.addEventListener('load', resizeCanvas);
+    window.addEventListener('load', scheduleCanvasResize);
   </script>
   <script>
     window.focus();
