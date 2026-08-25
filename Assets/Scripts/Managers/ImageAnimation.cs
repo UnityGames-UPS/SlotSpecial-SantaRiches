@@ -21,6 +21,7 @@ public class ImageAnimation : MonoBehaviour
 
 	[SerializeField] internal bool doLoopAnimation = true;
 	[SerializeField] private bool StartOnAwake;
+	[SerializeField] private bool StartOnEnable;
 
 	[HideInInspector]
 	[SerializeField] internal ImageState currentAnimationState;
@@ -48,7 +49,10 @@ public class ImageAnimation : MonoBehaviour
 
 	private void OnEnable()
 	{
-
+		if (StartOnEnable)
+		{
+			StartAnimation();
+		}
 	}
 
 	private void OnDisable()

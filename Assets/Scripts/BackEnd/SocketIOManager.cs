@@ -639,7 +639,7 @@ public class SocketIOManager : MonoBehaviour
                     yield break;
                 }
 
-                if (missedPongs >= 1 && popupManager != null)
+                if (missedPongs >= 2 && popupManager != null)
                 {
                     popupManager.ShowReconnectionPopup(missedPongs, MAX_MISSED_PONGS);
                 }

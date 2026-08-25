@@ -27,11 +27,12 @@ public sealed class ExtraGiftWildController : MonoBehaviour
 
     [Header("Flying Gift")]
     [SerializeField] private RectTransform giftParent;
-    [SerializeField] private Vector2 handOffset = new Vector2(-100f, 24f);
+    [Tooltip("Exact point on the moving Santa where each gift spawns.")]
+    [SerializeField] private RectTransform giftSpawnPoint;
     [SerializeField] private Vector2 giftSize = new Vector2(220f, 220f);
     [SerializeField, Min(0.01f)] private float giftTravelDuration = 1.25f;
-    [SerializeField, Min(0f)] private float giftStartScale;
-    [SerializeField, Min(0f)] private float giftArcHeight = 260f;
+    [SerializeField, Min(0f)] private float giftStartScale = 0.1f;
+    [SerializeField, Min(0f)] private float giftArcHeight = 140f;
     [SerializeField] private float giftRotationDegrees = 360f;
 
     [Header("Presentation Overlay")]
@@ -120,7 +121,7 @@ public sealed class ExtraGiftWildController : MonoBehaviour
             ? frameDelay * santaAnimation.textureArray.Count
             : 0f;
         int animationCycleCount = Mathf.CeilToInt(
-            targets.Count / (float)MaximumGiftsPerAnimationCycle);
+            targets.Count / (float)GetGiftsPerAnimationCycle(targets.Count));
         float requiredBatchDuration = animationCycleDuration > 0f
             ? animationCycleDuration * animationCycleCount + frameDelay
             : 0f;
@@ -231,8 +232,8 @@ public sealed class ExtraGiftWildController : MonoBehaviour
             }
         }
 
-        // The calculated crossing time gives every two-gift batch a complete
-        // Santa animation cycle. Keep a defensive fallback so no server gift is
+        // The calculated crossing time gives every gift batch a complete Santa
+        // animation cycle. Keep a defensive fallback so no server gift is
         // dropped if the animation timing is edited at runtime.
         if (isPresenting && nextTargetIndex < targets.Count)
         {
@@ -253,7 +254,7 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         float crossingDuration)
     {
         int batchCount = Mathf.CeilToInt(
-            targets.Count / (float)MaximumGiftsPerAnimationCycle);
+            targets.Count / (float)GetGiftsPerAnimationCycle(targets.Count));
         float batchDelay = crossingDuration / Mathf.Max(1, batchCount + 1);
         int nextTargetIndex = 0;
         while (isPresenting && nextTargetIndex < targets.Count)
@@ -280,8 +281,9 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         Sprite giftSprite,
         Func<int, IEnumerator> playLandingAnimation)
     {
+        int giftsPerCycle = GetGiftsPerAnimationCycle(targets.Count);
         int endTargetIndex = Mathf.Min(
-            startTargetIndex + MaximumGiftsPerAnimationCycle,
+            startTargetIndex + giftsPerCycle,
             targets.Count);
         for (int targetIndex = startTargetIndex;
              targetIndex < endTargetIndex;
@@ -295,6 +297,11 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         }
 
         return endTargetIndex;
+    }
+
+    private static int GetGiftsPerAnimationCycle(int giftCount)
+    {
+        return giftCount == 2 ? 1 : MaximumGiftsPerAnimationCycle;
     }
 
     private void StartGiftFlight(
@@ -356,7 +363,9 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         projectile.SetParent(parent, false);
         projectile.SetAsLastSibling();
         projectile.sizeDelta = giftSize;
-        projectile.position = movingRect.TransformPoint(handOffset);
+        projectile.position = giftSpawnPoint != null
+            ? giftSpawnPoint.position
+            : movingRect.position;
         projectile.localScale = Vector3.one * giftStartScale;
 
         Image projectileImage = projectileObject.GetComponent<Image>();
@@ -617,6 +626,11 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         if (giftParent == null && movingRect != null)
         {
             giftParent = movingRect.parent as RectTransform;
+        }
+
+        if (giftSpawnPoint == null && movingRect != null)
+        {
+            giftSpawnPoint = movingRect.Find("SpawnPoint") as RectTransform;
         }
 
         if (blackScreen == null && giftParent != null)

@@ -207,6 +207,8 @@ public class SlotBehaviour : MonoBehaviour
         new List<List<WinningSymbolAnimationRuntime>>();
     private readonly Dictionary<int, ExpandingSantaAnimationRuntime> expandingSantaAnimations =
         new Dictionary<int, ExpandingSantaAnimationRuntime>();
+    private readonly Dictionary<GameObject, CanvasSortingState> expandedWinBoxOverlayStates =
+        new Dictionary<GameObject, CanvasSortingState>();
     private readonly HashSet<int> activeExpandedSantaColumns = new HashSet<int>();
     private readonly HashSet<int> deferredExpandingSantaWinPositions = new HashSet<int>();
     private readonly Dictionary<int, int> expandingSantaVisualSymbolOverrides =
@@ -278,6 +280,15 @@ public class SlotBehaviour : MonoBehaviour
         internal bool overlayCanvasOriginalOverrideSorting;
         internal int overlayCanvasOriginalSortingLayerId;
         internal int overlayCanvasOriginalSortingOrder;
+    }
+
+    private sealed class CanvasSortingState
+    {
+        internal Canvas canvas;
+        internal bool enabled;
+        internal bool overrideSorting;
+        internal int sortingLayerId;
+        internal int sortingOrder;
     }
 
     private sealed class ExpandingSantaAnimationRuntime
@@ -1462,12 +1473,13 @@ public class SlotBehaviour : MonoBehaviour
 
         ServerPosition position = giftWild.position;
         SetExtraGiftWildNormalSlotAlpha(giftWild, 0f);
+        bool suppressAnimation = activeExpandedSantaColumns.Contains(position.col);
         List<Sprite> landingFrames = animSpritesExtraGift != null
             ? animSpritesExtraGift
                 .Where(frame => frame != null)
                 .ToList()
             : new List<Sprite>();
-        bool started = landingFrames.Count > 0 &&
+        bool started = !suppressAnimation && landingFrames.Count > 0 &&
             StartWinningSymbolAnimation(
                 position.col,
                 position.row,
@@ -1484,7 +1496,10 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         CommitExtraGiftWild(result, giftWild, false);
-        HoldExtraGiftWildInAnimationSlot(position.col, position.row);
+        if (!suppressAnimation)
+        {
+            HoldExtraGiftWildInAnimationSlot(position.col, position.row);
+        }
         RefreshWinAnimationRootVisibility();
     }
 
@@ -2569,6 +2584,18 @@ public class SlotBehaviour : MonoBehaviour
                 yield return PlayNormalWinPresentation(result, showIndividualWinLines);
             }
         }
+        else if (useFreeSpinWinBoxes)
+        {
+            // Free Games continue automatically. Reveal the deferred Expanding
+            // Santa wins here and hold them before GameManager starts the next
+            // spin or opens a retrigger/completion panel.
+            RevealDeferredExpandingSantaWinBoxes(result);
+            if (keepExpandingSantaWinBoxesVisible)
+            {
+                yield return new WaitForSecondsRealtime(
+                    Mathf.Max(0.1f, freeSpinWinBoxDuration));
+            }
+        }
 
         resultPresentationInProgress = false;
         autoplayRoundInProgress = false;
@@ -3109,6 +3136,12 @@ public class SlotBehaviour : MonoBehaviour
             return;
         }
 
+        if (!deferExpandingSantaWinBoxes && keepExpandingSantaWinBoxesVisible)
+        {
+            RefreshWinAnimationRootVisibility();
+            return;
+        }
+
         if (deferredExpandingSantaWinPositions.Count == 0)
         {
             foreach (int position in CollectWinningPositions(result))
@@ -3137,17 +3170,87 @@ public class SlotBehaviour : MonoBehaviour
             }
 
             SetWinAnimationColumnActive(columnIndex, true);
+            bool isExpandedSantaColumn = activeExpandedSantaColumns.Contains(columnIndex);
             GameObject winBox = freeSpinWinBoxes[columnIndex][rowIndex];
             if (winBox != null)
             {
+                SetExpandedWinBoxOverlay(winBox, isExpandedSantaColumn);
                 winBox.SetActive(true);
                 RestartWinBoxAnimation(winBox);
             }
 
-            StartWinningSymbolAnimation(columnIndex, rowIndex);
+            if (!isExpandedSantaColumn)
+            {
+                StartWinningSymbolAnimation(
+                    columnIndex,
+                    rowIndex,
+                    true,
+                    winSymbolLoopDuration,
+                    null,
+                    false,
+                    true);
+            }
         }
 
         RefreshWinAnimationRootVisibility();
+    }
+
+    private void SetExpandedWinBoxOverlay(GameObject winBox, bool isActive)
+    {
+        if (winBox == null)
+        {
+            return;
+        }
+
+        if (!isActive)
+        {
+            if (!expandedWinBoxOverlayStates.TryGetValue(winBox, out CanvasSortingState state) ||
+                state?.canvas == null)
+            {
+                expandedWinBoxOverlayStates.Remove(winBox);
+                return;
+            }
+
+            state.canvas.enabled = state.enabled;
+            state.canvas.overrideSorting = state.overrideSorting;
+            state.canvas.sortingLayerID = state.sortingLayerId;
+            state.canvas.sortingOrder = state.sortingOrder;
+            expandedWinBoxOverlayStates.Remove(winBox);
+            return;
+        }
+
+        if (expandedWinBoxOverlayStates.ContainsKey(winBox))
+        {
+            return;
+        }
+
+        Canvas parentCanvas = winBox.transform.parent != null
+            ? winBox.transform.parent.GetComponentInParent<Canvas>()
+            : null;
+        Canvas overlayCanvas = winBox.GetComponent<Canvas>();
+        if (overlayCanvas == null)
+        {
+            overlayCanvas = winBox.AddComponent<Canvas>();
+        }
+
+        expandedWinBoxOverlayStates[winBox] = new CanvasSortingState
+        {
+            canvas = overlayCanvas,
+            enabled = overlayCanvas.enabled,
+            overrideSorting = overlayCanvas.overrideSorting,
+            sortingLayerId = overlayCanvas.sortingLayerID,
+            sortingOrder = overlayCanvas.sortingOrder
+        };
+
+        int parentSortingOrder = parentCanvas != null ? parentCanvas.sortingOrder : 0;
+        overlayCanvas.enabled = true;
+        overlayCanvas.overrideSorting = true;
+        if (parentCanvas != null)
+        {
+            overlayCanvas.sortingLayerID = parentCanvas.sortingLayerID;
+        }
+        overlayCanvas.sortingOrder = Mathf.Clamp(parentSortingOrder + 900, -32768, 32767);
+        winBox.transform.SetAsLastSibling();
     }
 
     private static void RestartWinBoxAnimation(GameObject winBox)
@@ -3182,7 +3285,7 @@ public class SlotBehaviour : MonoBehaviour
         List<Sprite> overrideFrames = null,
         bool hideStaticSymbolWithAlpha = false,
         bool allowOnExpandedSantaColumn = false,
-        bool renderAboveBlackScreen = false)
+        bool renderAbovePresentationOverlay = false)
     {
         if (!allowOnExpandedSantaColumn && activeExpandedSantaColumns.Contains(columnIndex))
         {
@@ -3218,7 +3321,7 @@ public class SlotBehaviour : MonoBehaviour
             return false;
         }
 
-        SetExtraGiftWildAnimationOverlay(runtime, renderAboveBlackScreen);
+        SetWinningSymbolAnimationOverlay(runtime, renderAbovePresentationOverlay);
         SetWinAnimationColumnActive(columnIndex, true);
         if (freeSpinWinBoxesRoot != null)
         {
@@ -3269,7 +3372,7 @@ public class SlotBehaviour : MonoBehaviour
 
         WinningSymbolAnimationRuntime runtime = winningSymbolAnimations[columnIndex][rowIndex];
         runtime?.animation?.StopAnimation();
-        SetExtraGiftWildAnimationOverlay(runtime, false);
+        SetWinningSymbolAnimationOverlay(runtime, false);
         if (runtime?.root != null)
         {
             runtime.root.SetActive(false);
@@ -3283,7 +3386,7 @@ public class SlotBehaviour : MonoBehaviour
         }
     }
 
-    private static void SetExtraGiftWildAnimationOverlay(
+    private static void SetWinningSymbolAnimationOverlay(
         WinningSymbolAnimationRuntime runtime,
         bool isActive)
     {
@@ -3655,6 +3758,7 @@ public class SlotBehaviour : MonoBehaviour
                 GameObject winBox = column[rowIndex];
                 if (winBox != null && !preserveExpandedSantaWinBox)
                 {
+                    SetExpandedWinBoxOverlay(winBox, false);
                     winBox.SetActive(false);
                 }
             }
@@ -3669,7 +3773,7 @@ public class SlotBehaviour : MonoBehaviour
                     runtime.animation.StopAnimation();
                 }
 
-                SetExtraGiftWildAnimationOverlay(runtime, false);
+                SetWinningSymbolAnimationOverlay(runtime, false);
                 if (runtime?.root != null)
                 {
                     runtime.root.SetActive(false);
