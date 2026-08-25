@@ -38,6 +38,7 @@ public class SlotBehaviour : MonoBehaviour
     private const float NormalAllWinBoxesDuration = 2f;
     private const float NormalSingleWinLineDuration = 2f;
     private const float ExtraGiftWildRevealDelay = 2f;
+    private const int MaximumExtraGiftWildThrowsPerCycle = 2;
     private const int ScatterCountForAnticipation = 2;
     private const int DecimalPointSpriteIndex = 10;
     private const int CommaSpriteIndex = 11;
@@ -110,9 +111,13 @@ public class SlotBehaviour : MonoBehaviour
     [Tooltip("Looping anticipation visuals for reels 2, 3, 4, and 5, in that order.")]
     [SerializeField] private GameObject[] scatterAnticipationObjects =
         new GameObject[DefaultReelCount - 1];
-    [SerializeField, Min(0f)] private float scatterAnticipationDuration = 3.25f;
-    [SerializeField, Min(0f)] private float scatterAnticipationSoundFadeDuration = 0.25f;
+    [SerializeField, Min(0f)] private float scatterAnticipationDuration = 1.5f;
+    [SerializeField, Min(0f)] private float scatterAnticipationSoundFadeDuration = 0.4f;
     [SerializeField, Min(1f)] private float scatterAnticipationSpeedMultiplier = 1.15f;
+
+    [Header("Extra Gift Wild Presentation")]
+    [SerializeField] private ExtraGiftWildController extraGiftWildController;
+    [SerializeField, Min(0.1f)] private float extraGiftWildLandingDuration = 1.2f;
 
     [Header("Expanding Santa Presentation")]
     [Tooltip("Expanding Santa overlays in left-to-right reel order. Leave reels without an overlay empty.")]
@@ -143,6 +148,9 @@ public class SlotBehaviour : MonoBehaviour
     [SerializeField] private List<Sprite> animSpritesCup = new List<Sprite>();
     [SerializeField] private List<Sprite> animSpritesDeer = new List<Sprite>();
     [SerializeField] private List<Sprite> animSpritesGift = new List<Sprite>();
+    [FormerlySerializedAs("animSpritesExtraGiftWildLanding")]
+    [Tooltip("Used only when Santa's thrown Extra Gift Wild lands.")]
+    [SerializeField] private Sprite[] animSpritesExtraGift = Array.Empty<Sprite>();
     [SerializeField] private List<Sprite> animSpritesJ = new List<Sprite>();
     [SerializeField] private List<Sprite> animSpritesK = new List<Sprite>();
     [Tooltip("Used only when a Moon lands as its reel stops.")]
@@ -200,6 +208,9 @@ public class SlotBehaviour : MonoBehaviour
     private readonly Dictionary<int, ExpandingSantaAnimationRuntime> expandingSantaAnimations =
         new Dictionary<int, ExpandingSantaAnimationRuntime>();
     private readonly HashSet<int> activeExpandedSantaColumns = new HashSet<int>();
+    private readonly HashSet<int> deferredExpandingSantaWinPositions = new HashSet<int>();
+    private readonly Dictionary<int, int> expandingSantaVisualSymbolOverrides =
+        new Dictionary<int, int>();
     private bool serverSymbolMappingActive;
 
     internal List<List<int>> currentDisplayMatrix;
@@ -225,6 +236,9 @@ public class SlotBehaviour : MonoBehaviour
     private bool waitingForLateResult;
     private bool resultPresentationInProgress;
     private bool extraGiftWildRevealActive;
+    private bool extraGiftWildTriggeredForCurrentResult;
+    private bool deferExpandingSantaWinBoxes;
+    private bool keepExpandingSantaWinBoxesVisible;
     private bool autoplayRoundInProgress;
     private bool requiredPresentationCompletionRaised;
     private bool shuttingDown;
@@ -321,6 +335,7 @@ public class SlotBehaviour : MonoBehaviour
     {
         shuttingDown = true;
         activeMoonLandingAnimations = 0;
+        extraGiftWildController?.StopPresentation();
         SetExtraGiftWildRevealActive(false);
         UnbindGameManagerEvents();
         KillAllTweens();
@@ -338,6 +353,9 @@ public class SlotBehaviour : MonoBehaviour
     private void ResolveSceneReferences()
     {
         audioManager = audioManager != null ? audioManager : FindSceneComponent<AudioManager>();
+        extraGiftWildController = extraGiftWildController != null
+            ? extraGiftWildController
+            : FindSceneComponent<ExtraGiftWildController>();
         symbolInfoCard = symbolInfoCard != null
             ? symbolInfoCard
             : FindNamedComponent<SymbolInfoCard>("Info Card");
@@ -840,15 +858,13 @@ public class SlotBehaviour : MonoBehaviour
                 .ToList()
             : new List<Transform>();
 
-        int[] defaultOverlayColumns = { 1, 3 };
-        for (int overlayIndex = 0;
-             overlayIndex < unassignedOverlays.Count && overlayIndex < defaultOverlayColumns.Length;
-             overlayIndex++)
+        for (int columnIndex = 0;
+             columnIndex < DefaultReelCount && columnIndex < unassignedOverlays.Count;
+             columnIndex++)
         {
-            int columnIndex = defaultOverlayColumns[overlayIndex];
             if (expandingSantaObjects[columnIndex] == null)
             {
-                expandingSantaObjects[columnIndex] = unassignedOverlays[overlayIndex].gameObject;
+                expandingSantaObjects[columnIndex] = unassignedOverlays[columnIndex].gameObject;
             }
         }
 
@@ -1246,6 +1262,7 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         PrepareExtraGiftWildSymbols(result);
+        PrepareExpandingSantaVisualSymbolOverrides(result);
 
         if (waitingForLateResult && !IsSpinning)
         {
@@ -1259,6 +1276,7 @@ public class SlotBehaviour : MonoBehaviour
 
     private void PrepareExtraGiftWildSymbols(SpinResult result)
     {
+        extraGiftWildTriggeredForCurrentResult = false;
         if (result?.resultMatrix == null || gameConfig == null)
         {
             return;
@@ -1277,6 +1295,7 @@ public class SlotBehaviour : MonoBehaviour
             }
 
             ServerPosition position = giftWild.position;
+            extraGiftWildTriggeredForCurrentResult = true;
             result.resultMatrix[position.col][position.row] = giftWild.originalSymbolId;
         }
     }
@@ -1292,28 +1311,273 @@ public class SlotBehaviour : MonoBehaviour
 
     private IEnumerator RevealExtraGiftWilds(SpinResult result)
     {
-        if (result?.extraGiftWilds == null ||
-            !result.extraGiftWilds.Any(giftWild => IsValidExtraGiftWild(result, giftWild)))
+        List<ServerExtraGiftWild> validGiftWilds = result?.extraGiftWilds != null
+            ? result.extraGiftWilds
+                .Where(giftWild => IsValidExtraGiftWild(result, giftWild))
+                .ToList()
+            : new List<ServerExtraGiftWild>();
+        if (validGiftWilds.Count == 0)
         {
             yield break;
         }
 
         SetExtraGiftWildRevealActive(true);
-        yield return new WaitForSecondsRealtime(ExtraGiftWildRevealDelay);
+        bool playedGiftRevealAudio = false;
+        if (extraGiftWildController != null && extraGiftWildController.CanPresent)
+        {
+            List<RectTransform> targets = validGiftWilds
+                .Select(GetExtraGiftWildAnimationTarget)
+                .ToList();
+            Sprite giftSprite = GetSymbolSprite(gameConfig.giftWildSymbolId);
+            yield return extraGiftWildController.PlayPresentation(
+                targets,
+                giftSprite,
+                targetIndex =>
+                {
+                    if (!playedGiftRevealAudio)
+                    {
+                        playedGiftRevealAudio = true;
+                        audioManager?.PlayGiftReveal();
+                    }
 
-        foreach (ServerExtraGiftWild giftWild in result.extraGiftWilds)
+                    return targetIndex >= 0 && targetIndex < validGiftWilds.Count
+                        ? PlayExtraGiftWildLanding(result, validGiftWilds[targetIndex])
+                        : null;
+                },
+                () => FinalizeExtraGiftWildPresentation(result, validGiftWilds));
+        }
+        else
+        {
+            yield return new WaitForSecondsRealtime(ExtraGiftWildRevealDelay);
+            if (!playedGiftRevealAudio)
+            {
+                playedGiftRevealAudio = true;
+                audioManager?.PlayGiftReveal();
+            }
+
+            for (int batchStart = 0;
+                 batchStart < validGiftWilds.Count;
+                 batchStart += MaximumExtraGiftWildThrowsPerCycle)
+            {
+                int batchCount = Mathf.Min(
+                    MaximumExtraGiftWildThrowsPerCycle,
+                    validGiftWilds.Count - batchStart);
+                yield return PlayExtraGiftWildLandingBatch(
+                    result,
+                    validGiftWilds,
+                    batchStart,
+                    batchCount);
+            }
+
+            FinalizeExtraGiftWildPresentation(result, validGiftWilds);
+        }
+
+        ApplyMatrix(CreatePresentationMatrix(result));
+    }
+
+    private RectTransform GetExtraGiftWildTarget(ServerExtraGiftWild giftWild)
+    {
+        ServerPosition position = giftWild?.position;
+        if (position == null ||
+            position.col < 0 || position.col >= Tempimages.Count ||
+            Tempimages[position.col]?.slotImages == null ||
+            position.row < 0 || position.row >= Tempimages[position.col].slotImages.Count)
+        {
+            return null;
+        }
+
+        Image target = Tempimages[position.col].slotImages[position.row];
+        return target != null ? target.rectTransform : null;
+    }
+
+    private RectTransform GetExtraGiftWildAnimationTarget(ServerExtraGiftWild giftWild)
+    {
+        ServerPosition position = giftWild?.position;
+        if (position != null &&
+            position.col >= 0 && position.col < winningSymbolAnimations.Count &&
+            position.row >= 0 && position.row < winningSymbolAnimations[position.col].Count)
+        {
+            WinningSymbolAnimationRuntime runtime =
+                winningSymbolAnimations[position.col][position.row];
+            if (runtime?.renderer != null)
+            {
+                return runtime.renderer.rectTransform;
+            }
+
+            if (runtime?.root != null)
+            {
+                return runtime.root.transform as RectTransform;
+            }
+        }
+
+        return GetExtraGiftWildTarget(giftWild);
+    }
+
+    private IEnumerator PlayExtraGiftWildLandingBatch(
+        SpinResult result,
+        IReadOnlyList<ServerExtraGiftWild> giftWilds,
+        int batchStart,
+        int batchCount)
+    {
+        int completedLandings = 0;
+        int batchEnd = Mathf.Min(batchStart + batchCount, giftWilds.Count);
+        for (int giftIndex = batchStart; giftIndex < batchEnd; giftIndex++)
+        {
+            StartCoroutine(PlayExtraGiftWildLandingAndSignal(
+                result,
+                giftWilds[giftIndex],
+                () => completedLandings++));
+        }
+
+        while (completedLandings < batchEnd - batchStart)
+        {
+            yield return null;
+        }
+    }
+
+    private IEnumerator PlayExtraGiftWildLandingAndSignal(
+        SpinResult result,
+        ServerExtraGiftWild giftWild,
+        Action onComplete)
+    {
+        yield return PlayExtraGiftWildLanding(result, giftWild);
+        onComplete?.Invoke();
+    }
+
+    private IEnumerator PlayExtraGiftWildLanding(SpinResult result, ServerExtraGiftWild giftWild)
+    {
+        if (!IsValidExtraGiftWild(result, giftWild))
+        {
+            yield break;
+        }
+
+        ServerPosition position = giftWild.position;
+        SetExtraGiftWildNormalSlotAlpha(giftWild, 0f);
+        List<Sprite> landingFrames = animSpritesExtraGift != null
+            ? animSpritesExtraGift
+                .Where(frame => frame != null)
+                .ToList()
+            : new List<Sprite>();
+        bool started = landingFrames.Count > 0 &&
+            StartWinningSymbolAnimation(
+                position.col,
+                position.row,
+                false,
+                extraGiftWildLandingDuration,
+                landingFrames,
+                true,
+                true);
+        if (started)
+        {
+            yield return new WaitForSecondsRealtime(
+                Mathf.Max(0.1f, extraGiftWildLandingDuration));
+        }
+
+        CommitExtraGiftWild(result, giftWild, false);
+        HoldExtraGiftWildInAnimationSlot(position.col, position.row);
+        RefreshWinAnimationRootVisibility();
+    }
+
+    private void CommitExtraGiftWild(
+        SpinResult result,
+        ServerExtraGiftWild giftWild,
+        bool revealNormalSlot)
+    {
+        if (!IsValidExtraGiftWild(result, giftWild))
+        {
+            return;
+        }
+
+        // Commit the Gift Wild value immediately after its landing animation.
+        // Its normal reel image stays transparent until the sleigh has exited.
+        ServerPosition position = giftWild.position;
+        result.resultMatrix[position.col][position.row] = gameConfig.giftWildSymbolId;
+        if (currentDisplayMatrix != null &&
+            position.col < currentDisplayMatrix.Count &&
+            currentDisplayMatrix[position.col] != null &&
+            position.row < currentDisplayMatrix[position.col].Count)
+        {
+            currentDisplayMatrix[position.col][position.row] = gameConfig.giftWildSymbolId;
+        }
+
+        RectTransform targetRect = GetExtraGiftWildTarget(giftWild);
+        Image targetImage = targetRect != null ? targetRect.GetComponent<Image>() : null;
+        if (targetImage != null)
+        {
+            targetImage.sprite = GetSymbolSprite(gameConfig.giftWildSymbolId);
+            targetImage.enabled = true;
+            targetImage.rectTransform.localScale = Vector3.one;
+            Color color = targetImage.color;
+            targetImage.color = new Color(
+                color.r,
+                color.g,
+                color.b,
+                revealNormalSlot ? 1f : 0f);
+        }
+    }
+
+    private void FinalizeExtraGiftWildPresentation(
+        SpinResult result,
+        IEnumerable<ServerExtraGiftWild> giftWilds)
+    {
+        if (giftWilds == null)
+        {
+            return;
+        }
+
+        foreach (ServerExtraGiftWild giftWild in giftWilds)
         {
             if (!IsValidExtraGiftWild(result, giftWild))
             {
                 continue;
             }
 
+            CommitExtraGiftWild(result, giftWild, true);
             ServerPosition position = giftWild.position;
-            result.resultMatrix[position.col][position.row] = gameConfig.giftWildSymbolId;
+            StopWinningSymbolAnimation(position.col, position.row);
         }
 
-        audioManager?.PlayGiftReveal();
-        ApplyMatrix(result.resultMatrix);
+        RefreshWinAnimationRootVisibility();
+    }
+
+    private void SetExtraGiftWildNormalSlotAlpha(ServerExtraGiftWild giftWild, float alpha)
+    {
+        RectTransform targetRect = GetExtraGiftWildTarget(giftWild);
+        Image targetImage = targetRect != null ? targetRect.GetComponent<Image>() : null;
+        if (targetImage == null)
+        {
+            return;
+        }
+
+        targetImage.enabled = true;
+        Color color = targetImage.color;
+        targetImage.color = new Color(color.r, color.g, color.b, Mathf.Clamp01(alpha));
+    }
+
+    private void HoldExtraGiftWildInAnimationSlot(int columnIndex, int rowIndex)
+    {
+        if (columnIndex < 0 || columnIndex >= winningSymbolAnimations.Count ||
+            rowIndex < 0 || rowIndex >= winningSymbolAnimations[columnIndex].Count)
+        {
+            return;
+        }
+
+        WinningSymbolAnimationRuntime runtime = winningSymbolAnimations[columnIndex][rowIndex];
+        if (runtime?.root == null || runtime.renderer == null)
+        {
+            return;
+        }
+
+        runtime.animation?.StopAnimation();
+        runtime.renderer.sprite = GetSymbolSprite(gameConfig.giftWildSymbolId);
+        runtime.renderer.color = Color.white;
+        runtime.renderer.enabled = true;
+        runtime.root.SetActive(true);
+        SetWinAnimationColumnActive(columnIndex, true);
+        if (freeSpinWinBoxesRoot != null)
+        {
+            freeSpinWinBoxesRoot.gameObject.SetActive(true);
+        }
     }
 
     private void SetExtraGiftWildRevealActive(bool isActive)
@@ -1329,13 +1593,12 @@ public class SlotBehaviour : MonoBehaviour
 
     private IEnumerator PresentLateResult(SpinResult result)
     {
-        ApplyMatrix(result.resultMatrix);
-        yield return RevealExtraGiftWilds(result);
+        ApplyMatrix(CreatePresentationMatrix(result));
 
         waitingForLateResult = false;
         PresentResult(result);
         RoundStopped?.Invoke(result);
-        SetExtraGiftWildRevealActive(false);
+        yield return null;
     }
 
     #endregion
@@ -1365,6 +1628,8 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         StopWinningAnimations();
+        extraGiftWildTriggeredForCurrentResult = false;
+        expandingSantaVisualSymbolOverrides.Clear();
         HideSymbolInfoCard();
         if (gameManager != null && gameManager.IsFreeSpinActive)
         {
@@ -1511,6 +1776,20 @@ public class SlotBehaviour : MonoBehaviour
         if (resetDisplay) ShowGoodLuckState();
     }
 
+    internal void ShowRandomPostFreeSpinMatrix()
+    {
+        if (!isInitialized)
+        {
+            return;
+        }
+
+        // This is a presentation-only reset after Free Games. It deliberately
+        // does not update the last server result or any win/balance data.
+        StopWinningAnimations();
+        expandingSantaVisualSymbolOverrides.Clear();
+        ApplyMatrix(GenerateRandomMatrix(GetRowCount()));
+    }
+
     internal string ShowFreeSpinCompletionWin(double totalFreeGamesWin)
     {
         double safeAmount = Math.Max(0d, totalFreeGamesWin);
@@ -1600,8 +1879,7 @@ public class SlotBehaviour : MonoBehaviour
             }
         }
 
-        yield return StopReelsAndApplyMatrix(pendingResult.resultMatrix);
-        yield return RevealExtraGiftWilds(pendingResult);
+        yield return StopReelsAndApplyMatrix(CreatePresentationMatrix(pendingResult));
 
         SpinResult completedResult = pendingResult;
         pendingResult = null;
@@ -1611,7 +1889,6 @@ public class SlotBehaviour : MonoBehaviour
         PresentResult(completedResult);
         IsSpinning = false;
         RoundStopped?.Invoke(completedResult);
-        SetExtraGiftWildRevealActive(false);
     }
 
     private IEnumerator AbortSpin(string reason)
@@ -1864,6 +2141,18 @@ public class SlotBehaviour : MonoBehaviour
             yield return null;
         }
 
+        if (!isSoundFading)
+        {
+            if (fadeDuration > 0f)
+            {
+                audioManager?.FadeOutAnticipation(fadeDuration);
+            }
+            else
+            {
+                audioManager?.StopAnticipation();
+            }
+        }
+
         StopScatterAnticipationVisual(reelIndex);
         if (reelMotion != null && reelMotion.IsActive())
         {
@@ -1882,8 +2171,6 @@ public class SlotBehaviour : MonoBehaviour
 
     private void StopScatterAnticipationVisual(int reelIndex)
     {
-        audioManager?.StopAnticipation();
-
         GameObject visual = GetScatterAnticipationVisual(reelIndex);
         if (visual == null)
         {
@@ -1897,7 +2184,14 @@ public class SlotBehaviour : MonoBehaviour
 
     private void StopAllScatterAnticipationVisuals()
     {
-        audioManager?.StopAnticipation();
+        if (scatterAnticipationSoundFadeDuration > 0f)
+        {
+            audioManager?.FadeOutAnticipation(scatterAnticipationSoundFadeDuration);
+        }
+        else
+        {
+            audioManager?.StopAnticipation();
+        }
 
         if (scatterAnticipationObjects == null)
         {
@@ -2054,7 +2348,7 @@ public class SlotBehaviour : MonoBehaviour
             return;
         }
 
-        ApplyMatrix(result.resultMatrix);
+        ApplyMatrix(CreatePresentationMatrix(result));
 
         double displayedWin = result.grandTotalWin > 0d ? result.grandTotalWin : result.winAmount;
         bool isFreeSpinResult = freeSpinWinPresentationActive &&
@@ -2136,33 +2430,41 @@ public class SlotBehaviour : MonoBehaviour
         yield return null;
 
         yield return PlayExpandingSantaIntro(result);
+        yield return RevealExtraGiftWilds(result);
+        SetExtraGiftWildRevealActive(false);
 
         bool triggersFreeGames = result?.freeSpinData != null &&
             result.freeSpinData.isTriggered &&
             result.freeSpinData.spinsAwarded > 0;
 
-        if (triggersFreeGames)
+        // An Expanding Santa result reveals all of its winning-symbol visuals
+        // only after the other queued features have completed. The independent
+        // Santa loop continues while GameManager presents those features.
+        if (activeExpandedSantaColumns.Count == 0)
         {
-            // A Free Games trigger has its own Moon-only presentation. Do not
-            // show the normal combined win boxes or the individual win lines.
-            yield return PlayFreeGameMoonTriggerAnimation(result);
-        }
-        else if (useFreeSpinWinBoxes)
-        {
-            yield return PlayFreeSpinWinBoxes(result);
-
-            // A result without WinBox positions can finish immediately. Keep
-            // the round alive until its bottom win count-up has been shown.
-            Tween amountTween = winAmountTween;
-            if (amountTween != null && amountTween.IsActive() && !amountTween.IsComplete())
+            if (triggersFreeGames)
             {
-                yield return amountTween.WaitForCompletion();
+                // A Free Games trigger has its own Moon-only presentation. Do not
+                // show the normal combined win boxes or the individual win lines.
+                yield return PlayFreeGameMoonTriggerAnimation(result);
             }
-        }
-        else
-        {
-            bool showIndividualWinLines = !autoplayRoundInProgress;
-            yield return PlayNormalWinPresentation(result, showIndividualWinLines);
+            else if (useFreeSpinWinBoxes)
+            {
+                yield return PlayFreeSpinWinBoxes(result);
+
+                // A result without WinBox positions can finish immediately. Keep
+                // the round alive until its bottom win count-up has been shown.
+                Tween amountTween = winAmountTween;
+                if (amountTween != null && amountTween.IsActive() && !amountTween.IsComplete())
+                {
+                    yield return amountTween.WaitForCompletion();
+                }
+            }
+            else
+            {
+                bool showIndividualWinLines = !autoplayRoundInProgress;
+                yield return PlayNormalWinPresentation(result, showIndividualWinLines);
+            }
         }
 
         resultPresentationInProgress = false;
@@ -2190,7 +2492,17 @@ public class SlotBehaviour : MonoBehaviour
         foreach (ExpandingSantaAnimationRuntime runtime in activeRuntimes)
         {
             activeExpandedSantaColumns.Add(runtime.columnIndex);
+            SetWinAnimationColumnActive(runtime.columnIndex, true);
         }
+
+        deferredExpandingSantaWinPositions.Clear();
+        foreach (int position in CollectWinningPositions(result))
+        {
+            deferredExpandingSantaWinPositions.Add(position);
+        }
+
+        deferExpandingSantaWinBoxes = true;
+        keepExpandingSantaWinBoxesVisible = false;
 
         if (freeSpinWinBoxesRoot != null)
         {
@@ -2233,6 +2545,14 @@ public class SlotBehaviour : MonoBehaviour
             yield break;
         }
 
+        // Continue the Expanding Santa motion throughout the queued features.
+        // Its WinBoxes stay deferred until GameManager reaches the handoff just
+        // before the Free Games presentation.
+        if (expandingSantaLoopRoutine != null)
+        {
+            StopCoroutine(expandingSantaLoopRoutine);
+        }
+
         expandingSantaLoopRoutine = StartCoroutine(LoopExpandingSantaFrames());
     }
 
@@ -2263,6 +2583,86 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         return columns;
+    }
+
+    private void PrepareExpandingSantaVisualSymbolOverrides(SpinResult result)
+    {
+        expandingSantaVisualSymbolOverrides.Clear();
+        if (result?.resultMatrix == null)
+        {
+            return;
+        }
+
+        int moonSymbolId = gameConfig != null ? gameConfig.scatterSymbolId : -1;
+        List<int> randomSymbolIds = GetAvailableVisualSymbolIds()
+            .Where(symbolId => symbolId != 0 && symbolId != moonSymbolId)
+            .Distinct()
+            .ToList();
+        if (randomSymbolIds.Count == 0)
+        {
+            return;
+        }
+
+        foreach (int columnIndex in GetExpandingSantaColumns(result))
+        {
+            if (columnIndex < 0 || columnIndex >= result.resultMatrix.Count ||
+                result.resultMatrix[columnIndex] == null ||
+                result.resultMatrix[columnIndex].Count < DefaultRowCount)
+            {
+                continue;
+            }
+
+            List<int> resultColumn = result.resultMatrix[columnIndex];
+            if (resultColumn[0] != 0 || resultColumn[1] != 0 || resultColumn[2] != 0)
+            {
+                continue;
+            }
+
+            for (int rowIndex = 0; rowIndex < 2; rowIndex++)
+            {
+                int position = rowIndex * DefaultReelCount + columnIndex;
+                expandingSantaVisualSymbolOverrides[position] = randomSymbolIds[
+                    UnityEngine.Random.Range(0, randomSymbolIds.Count)];
+            }
+        }
+    }
+
+    private List<List<int>> CreatePresentationMatrix(SpinResult result)
+    {
+        List<List<int>> matrix = CloneMatrix(result?.resultMatrix);
+        if (matrix == null || expandingSantaVisualSymbolOverrides.Count == 0)
+        {
+            return matrix;
+        }
+
+        foreach (KeyValuePair<int, int> symbolOverride in expandingSantaVisualSymbolOverrides)
+        {
+            int rowIndex = symbolOverride.Key / DefaultReelCount;
+            int columnIndex = symbolOverride.Key % DefaultReelCount;
+            if (columnIndex < 0 || columnIndex >= matrix.Count || matrix[columnIndex] == null ||
+                rowIndex < 0 || rowIndex >= matrix[columnIndex].Count ||
+                matrix[columnIndex][rowIndex] != 0)
+            {
+                continue;
+            }
+
+            matrix[columnIndex][rowIndex] = symbolOverride.Value;
+        }
+
+        return matrix;
+    }
+
+    private IEnumerable<int> GetAvailableVisualSymbolIds()
+    {
+        if (serverSymbolMappingActive && mappedServerSymbolIds.Count > 0)
+        {
+            return mappedServerSymbolIds.Where(symbolId =>
+                serverSpritesById.TryGetValue(symbolId, out Sprite sprite) && sprite != null);
+        }
+
+        int symbolCount = myImages != null ? myImages.Length : 0;
+        return Enumerable.Range(0, symbolCount)
+            .Where(symbolId => myImages[symbolId] != null);
     }
 
     private IEnumerator LoopExpandingSantaFrames()
@@ -2572,12 +2972,19 @@ public class SlotBehaviour : MonoBehaviour
                 continue;
             }
 
-            GameObject winBox = freeSpinWinBoxes[columnIndex][rowIndex];
-            if (winBox != null)
+            if (!deferExpandingSantaWinBoxes)
             {
-                winBox.SetActive(true);
-                RestartWinBoxAnimation(winBox);
-                showedAnyVisual = true;
+                // The scene keeps these column containers disabled while idle.
+                // A child WinBox cannot render until its column is active.
+                SetWinAnimationColumnActive(columnIndex, true);
+
+                GameObject winBox = freeSpinWinBoxes[columnIndex][rowIndex];
+                if (winBox != null)
+                {
+                    winBox.SetActive(true);
+                    RestartWinBoxAnimation(winBox);
+                    showedAnyVisual = true;
+                }
             }
 
             if (StartWinningSymbolAnimation(columnIndex, rowIndex))
@@ -2590,6 +2997,54 @@ public class SlotBehaviour : MonoBehaviour
         {
             RefreshWinAnimationRootVisibility();
         }
+    }
+
+    internal void RevealDeferredExpandingSantaWinBoxes(SpinResult result)
+    {
+        if (activeExpandedSantaColumns.Count == 0)
+        {
+            return;
+        }
+
+        if (deferredExpandingSantaWinPositions.Count == 0)
+        {
+            foreach (int position in CollectWinningPositions(result))
+            {
+                deferredExpandingSantaWinPositions.Add(position);
+            }
+        }
+
+        deferExpandingSantaWinBoxes = false;
+        keepExpandingSantaWinBoxesVisible = deferredExpandingSantaWinPositions.Count > 0;
+        if (!keepExpandingSantaWinBoxesVisible || freeSpinWinBoxesRoot == null)
+        {
+            RefreshWinAnimationRootVisibility();
+            return;
+        }
+
+        freeSpinWinBoxesRoot.gameObject.SetActive(true);
+        foreach (int position in deferredExpandingSantaWinPositions)
+        {
+            int rowIndex = position / DefaultReelCount;
+            int columnIndex = position % DefaultReelCount;
+            if (columnIndex < 0 || columnIndex >= freeSpinWinBoxes.Count ||
+                rowIndex < 0 || rowIndex >= freeSpinWinBoxes[columnIndex].Count)
+            {
+                continue;
+            }
+
+            SetWinAnimationColumnActive(columnIndex, true);
+            GameObject winBox = freeSpinWinBoxes[columnIndex][rowIndex];
+            if (winBox != null)
+            {
+                winBox.SetActive(true);
+                RestartWinBoxAnimation(winBox);
+            }
+
+            StartWinningSymbolAnimation(columnIndex, rowIndex);
+        }
+
+        RefreshWinAnimationRootVisibility();
     }
 
     private static void RestartWinBoxAnimation(GameObject winBox)
@@ -2621,9 +3076,11 @@ public class SlotBehaviour : MonoBehaviour
         int rowIndex,
         bool shouldLoop,
         float animationDuration,
-        List<Sprite> overrideFrames = null)
+        List<Sprite> overrideFrames = null,
+        bool hideStaticSymbolWithAlpha = false,
+        bool allowOnExpandedSantaColumn = false)
     {
-        if (activeExpandedSantaColumns.Contains(columnIndex))
+        if (!allowOnExpandedSantaColumn && activeExpandedSantaColumns.Contains(columnIndex))
         {
             return false;
         }
@@ -2657,6 +3114,12 @@ public class SlotBehaviour : MonoBehaviour
             return false;
         }
 
+        SetWinAnimationColumnActive(columnIndex, true);
+        if (freeSpinWinBoxesRoot != null)
+        {
+            freeSpinWinBoxesRoot.gameObject.SetActive(true);
+        }
+
         runtime.animation.StopAnimation();
         runtime.animation.textureArray = new List<Sprite>(frames);
         runtime.animation.rendererDelegate = runtime.renderer;
@@ -2670,7 +3133,20 @@ public class SlotBehaviour : MonoBehaviour
         runtime.renderer.enabled = true;
         if (runtime.staticSymbol != null)
         {
-            runtime.staticSymbol.enabled = false;
+            if (hideStaticSymbolWithAlpha)
+            {
+                Color staticColor = runtime.staticSymbol.color;
+                runtime.staticSymbol.color = new Color(
+                    staticColor.r,
+                    staticColor.g,
+                    staticColor.b,
+                    0f);
+                runtime.staticSymbol.enabled = true;
+            }
+            else
+            {
+                runtime.staticSymbol.enabled = false;
+            }
         }
 
         runtime.root.SetActive(true);
@@ -2703,17 +3179,34 @@ public class SlotBehaviour : MonoBehaviour
 
     private void RefreshWinAnimationRootVisibility()
     {
+        bool hasActiveWinBox = false;
+        bool hasActiveSymbolAnimation = false;
+        for (int columnIndex = 0; columnIndex < DefaultReelCount; columnIndex++)
+        {
+            bool columnHasActiveWinBox = columnIndex < freeSpinWinBoxes.Count &&
+                freeSpinWinBoxes[columnIndex]
+                    .Any(winBox => winBox != null && winBox.activeSelf);
+            bool columnHasActiveSymbolAnimation = columnIndex < winningSymbolAnimations.Count &&
+                winningSymbolAnimations[columnIndex]
+                    .Any(runtime => runtime?.root != null && runtime.root.activeSelf);
+            bool columnHasActiveExpandingSanta = expandingSantaAnimations.TryGetValue(
+                    columnIndex,
+                    out ExpandingSantaAnimationRuntime expandingSantaRuntime) &&
+                expandingSantaRuntime?.root != null && expandingSantaRuntime.root.activeSelf;
+
+            SetWinAnimationColumnActive(
+                columnIndex,
+                columnHasActiveWinBox || columnHasActiveSymbolAnimation ||
+                columnHasActiveExpandingSanta);
+            hasActiveWinBox |= columnHasActiveWinBox;
+            hasActiveSymbolAnimation |= columnHasActiveSymbolAnimation;
+        }
+
         if (freeSpinWinBoxesRoot == null)
         {
             return;
         }
 
-        bool hasActiveWinBox = freeSpinWinBoxes
-            .SelectMany(column => column)
-            .Any(winBox => winBox != null && winBox.activeSelf);
-        bool hasActiveSymbolAnimation = winningSymbolAnimations
-            .SelectMany(column => column)
-            .Any(runtime => runtime?.root != null && runtime.root.activeSelf);
         bool hasActiveAnticipation = scatterAnticipationObjects != null &&
             scatterAnticipationObjects.Any(visual => visual != null && visual.activeSelf);
         bool hasActiveExpandingSanta = expandingSantaAnimations.Values
@@ -2721,6 +3214,21 @@ public class SlotBehaviour : MonoBehaviour
         freeSpinWinBoxesRoot.gameObject.SetActive(
             hasActiveWinBox || hasActiveSymbolAnimation ||
             hasActiveAnticipation || hasActiveExpandingSanta);
+    }
+
+    private void SetWinAnimationColumnActive(int columnIndex, bool isActive)
+    {
+        if (winAnimationColumns == null ||
+            columnIndex < 0 || columnIndex >= winAnimationColumns.Length)
+        {
+            return;
+        }
+
+        Transform column = winAnimationColumns[columnIndex];
+        if (column != null && column.gameObject.activeSelf != isActive)
+        {
+            column.gameObject.SetActive(isActive);
+        }
     }
 
     private bool TryGetWinAnimation(
@@ -2735,7 +3243,15 @@ public class SlotBehaviour : MonoBehaviour
         else if (symbol == spriteCandle) frames = animSpritesCandle;
         else if (symbol == spriteCup) frames = animSpritesCup;
         else if (symbol == spriteDeer) frames = animSpritesDeer;
-        else if (symbol == spriteGift) frames = animSpritesGift;
+        else if (symbol == spriteGift)
+        {
+            bool usesExtraGiftAnimation = extraGiftWildTriggeredForCurrentResult &&
+                animSpritesExtraGift != null &&
+                animSpritesExtraGift.Any(frame => frame != null);
+            frames = usesExtraGiftAnimation
+                ? animSpritesExtraGift.Where(frame => frame != null).ToList()
+                : animSpritesGift;
+        }
         else if (symbol == spriteJ) frames = animSpritesJ;
         else if (symbol == spriteK) frames = animSpritesK;
         else if (symbol == spriteMoon) frames = animSpritesMoon;
@@ -2968,11 +3484,19 @@ public class SlotBehaviour : MonoBehaviour
     {
         StopAllScatterAnticipationVisuals();
 
-        foreach (List<GameObject> column in freeSpinWinBoxes)
+        for (int columnIndex = 0; columnIndex < freeSpinWinBoxes.Count; columnIndex++)
         {
-            foreach (GameObject winBox in column)
+            List<GameObject> column = freeSpinWinBoxes[columnIndex];
+            for (int rowIndex = 0; rowIndex < column.Count; rowIndex++)
             {
-                if (winBox != null) winBox.SetActive(false);
+                int position = rowIndex * DefaultReelCount + columnIndex;
+                bool preserveExpandedSantaWinBox = keepExpandingSantaWinBoxesVisible &&
+                    deferredExpandingSantaWinPositions.Contains(position);
+                GameObject winBox = column[rowIndex];
+                if (winBox != null && !preserveExpandedSantaWinBox)
+                {
+                    winBox.SetActive(false);
+                }
             }
         }
 
@@ -3036,6 +3560,9 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         activeExpandedSantaColumns.Clear();
+        deferredExpandingSantaWinPositions.Clear();
+        deferExpandingSantaWinBoxes = false;
+        keepExpandingSantaWinBoxesVisible = false;
         foreach (ExpandingSantaAnimationRuntime runtime in expandingSantaAnimations.Values)
         {
             runtime?.animation?.StopAnimation();

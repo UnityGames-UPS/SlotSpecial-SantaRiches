@@ -414,6 +414,7 @@ public class GameManager : MonoBehaviour
     {
         gameData.RestoreAuthoritativeBalance();
         ResetFreeSpinFeature(false, false);
+        slotBehaviour?.ShowRandomPostFreeSpinMatrix();
     }
 
     internal void StopAutoSpin()
@@ -605,7 +606,6 @@ public class GameManager : MonoBehaviour
         }
 
         lastCompletedResult = result;
-        TryStartExtraWinPresentation(result);
         if (IsFreeSpinActive)
         {
             if (ShouldOfferFreeSpinRetrigger(result))
@@ -626,6 +626,14 @@ public class GameManager : MonoBehaviour
     {
         SpinResult completedResult = result ?? lastCompletedResult;
         slotPresentationCompleted = true;
+        if (!extraWinPresentationInProgress &&
+            TryStartExtraWinPresentation(completedResult))
+        {
+            CurrentState = GameState.ShowingWin;
+            NotifyStateChanged();
+            return;
+        }
+
         if (extraWinPresentationInProgress)
         {
             CurrentState = GameState.ShowingWin;
@@ -642,6 +650,10 @@ public class GameManager : MonoBehaviour
         autoplayRoundInProgress = false;
         freeSpinRoundInProgress = false;
         IsStopRequested = false;
+
+        // Big/Super Big has already closed when this handoff is reached. Reveal
+        // deferred Expanding Santa WinBoxes before opening the Free Games panel.
+        slotBehaviour?.RevealDeferredExpandingSantaWinBoxes(completedResult);
 
         if (IsFreeSpinActive)
         {
@@ -704,18 +716,18 @@ public class GameManager : MonoBehaviour
         autoplayDelayRoutine = StartCoroutine(StartNextAutoplayRound(delay));
     }
 
-    private void TryStartExtraWinPresentation(SpinResult result)
+    private bool TryStartExtraWinPresentation(SpinResult result)
     {
         if (result == null || result.isFreeSpinResult || IsFreeSpinActive || uiManager == null)
         {
-            return;
+            return false;
         }
 
         double totalBet = CurrentTotalBet;
         double winAmount = result.winAmount > 0d ? result.winAmount : result.grandTotalWin;
         if (totalBet <= 0d || winAmount <= 0d)
         {
-            return;
+            return false;
         }
 
         double calculatedMultiplier = winAmount / totalBet;
@@ -726,7 +738,7 @@ public class GameManager : MonoBehaviour
                 : WinPopupType.RegularWin;
         if (popupType == WinPopupType.RegularWin)
         {
-            return;
+            return false;
         }
 
         int presentationVersion = ++extraWinPresentationVersion;
@@ -739,13 +751,14 @@ public class GameManager : MonoBehaviour
         if (!started)
         {
             extraWinPresentationInProgress = false;
-            return;
+            return false;
         }
 
         Debug.Log(
             $"[GameManager] {popupType} selected: win {winAmount:0.####} / " +
             $"total bet {totalBet:0.####} = {calculatedMultiplier:0.####}x " +
             $"(server payload totalMultiplier: {result.totalMultiplier:0.####}).");
+        return true;
     }
 
     private void HandleExtraWinPresentationCompleted(int presentationVersion)
