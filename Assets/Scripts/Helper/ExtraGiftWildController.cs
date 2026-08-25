@@ -96,10 +96,13 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         }
 
         SetBlackScreenActive(false);
+        bool moveSceneSanta = !IsPortraitMode();
 
-        Tween santaExitTween = MoveSceneSantaTo(
-            sceneSantaHomePosition + Vector2.right * sceneSantaExitOffsetX,
-            Ease.InQuad);
+        Tween santaExitTween = moveSceneSanta
+            ? MoveSceneSantaTo(
+                sceneSantaHomePosition + Vector2.right * sceneSantaExitOffsetX,
+                Ease.InQuad)
+            : null;
         if (santaExitTween != null)
         {
             yield return santaExitTween.WaitForCompletion();
@@ -142,7 +145,10 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         {
             onSleighExited?.Invoke();
             SetBlackScreenActive(false);
-            yield return MoveSceneSantaHome();
+            if (moveSceneSanta)
+            {
+                yield return MoveSceneSantaHome();
+            }
             FinishPresentation();
         }
     }
@@ -580,15 +586,20 @@ public sealed class ExtraGiftWildController : MonoBehaviour
 
     private void UpdateBlackScreenLayout()
     {
-        bool isPortrait = Screen.height > Screen.width;
+        bool isPortrait = IsPortraitMode();
         blackScreen.anchorMin = new Vector2(0.5f, 0.5f);
         blackScreen.anchorMax = new Vector2(0.5f, 0.5f);
         blackScreen.pivot = new Vector2(0.5f, 0.5f);
         blackScreen.anchoredPosition = Vector2.zero;
         blackScreen.sizeDelta = isPortrait
-            ? new Vector2(1080f, 1920f)
+            ? new Vector2(2000f, 3500f)
             : new Vector2(1920f, 1080f);
         blackScreen.localScale = Vector3.one;
+    }
+
+    private static bool IsPortraitMode()
+    {
+        return Screen.height > Screen.width;
     }
 
     private void ResolveReferences()

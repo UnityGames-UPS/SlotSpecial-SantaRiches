@@ -1082,8 +1082,8 @@ public class UIManager : MonoBehaviour
         bool allowExit = !blocked && !autoplay && !settlingAutoplay && !freeSpinOffer && !freeSpinActive;
         SetInteractable(homeButton, allowExit);
         SetInteractable(portraitHomeButton, allowExit);
-        SetInteractable(moreGamesButton, !blocked && moreGamesEnabled && !freeSpinOffer && !freeSpinActive);
-        SetInteractable(portraitMoreGamesButton, !blocked && moreGamesEnabled && !freeSpinOffer && !freeSpinActive);
+        SetInteractable(moreGamesButton, false);
+        SetInteractable(portraitMoreGamesButton, false);
         SetInteractable(enterFullscreenButton, !blocked);
         SetInteractable(portraitEnterFullscreenButton, !blocked);
         SetInteractable(exitFullscreenButton, !blocked);
@@ -2679,8 +2679,30 @@ public class UIManager : MonoBehaviour
         CloseSound();
         if (mutuallyExclusive != null) mutuallyExclusive.SetActive(false);
         target.SetActive(true);
+        ResetPanelToFirstPage(target);
         audioManager?.PlayPopupOpen();
         RefreshControls();
+    }
+
+    private static void ResetPanelToFirstPage(GameObject panel)
+    {
+        if (panel == null)
+        {
+            return;
+        }
+
+        Canvas.ForceUpdateCanvases();
+        foreach (ScrollRect scrollRect in panel.GetComponentsInChildren<ScrollRect>(true))
+        {
+            if (scrollRect == null)
+            {
+                continue;
+            }
+
+            scrollRect.StopMovement();
+            scrollRect.velocity = Vector2.zero;
+            scrollRect.normalizedPosition = new Vector2(0f, 1f);
+        }
     }
 
     private void OpenSound()

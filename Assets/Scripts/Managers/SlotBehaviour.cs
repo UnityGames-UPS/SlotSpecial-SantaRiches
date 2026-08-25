@@ -260,6 +260,9 @@ public class SlotBehaviour : MonoBehaviour
         internal float symbolPitch;
         internal Tween motionTween;
         internal float motionBasePixelsPerSecond;
+        internal Tween stopTween;
+        internal float stopTweenBaseTimingScale = 1f;
+        internal bool isAnticipating;
         internal int completedCycles;
     }
 
@@ -269,6 +272,12 @@ public class SlotBehaviour : MonoBehaviour
         internal Image renderer;
         internal ImageAnimation animation;
         internal Image staticSymbol;
+        internal Canvas overlayCanvas;
+        internal bool overlayCanvasStateCached;
+        internal bool overlayCanvasOriginalEnabled;
+        internal bool overlayCanvasOriginalOverrideSorting;
+        internal int overlayCanvasOriginalSortingLayerId;
+        internal int overlayCanvasOriginalSortingOrder;
     }
 
     private sealed class ExpandingSantaAnimationRuntime
@@ -1466,6 +1475,7 @@ public class SlotBehaviour : MonoBehaviour
                 extraGiftWildLandingDuration,
                 landingFrames,
                 true,
+                true,
                 true);
         if (started)
         {
@@ -1660,24 +1670,96 @@ public class SlotBehaviour : MonoBehaviour
         if (!IsSpinning) return;
 
         spinSpeed = speed;
-        float targetPixelsPerSecond = spinSpeed == SpinSpeed.Normal
-            ? normalReelSpeed
-            : fastReelSpeed;
+        float targetStopTimingScale = GetStopTimingScale(GetEffectiveStopSpeed());
 
         foreach (ReelRuntime reel in reels)
         {
-            if (reel.motionTween == null || !reel.motionTween.IsActive() ||
-                reel.motionBasePixelsPerSecond <= 0f)
+            ApplyReelMotionSpeed(reel);
+
+            if (reel.stopTween == null || !reel.stopTween.IsActive())
             {
                 continue;
             }
 
-            reel.motionTween.timeScale = targetPixelsPerSecond / reel.motionBasePixelsPerSecond;
+            reel.stopTween.timeScale = Mathf.Max(
+                0.01f,
+                reel.stopTweenBaseTimingScale / targetStopTimingScale);
         }
 
         if (spinSpeed == SpinSpeed.QuickSpin)
         {
             stopSpinRequested = true;
+        }
+    }
+
+    private void ApplyReelMotionSpeed(ReelRuntime reel)
+    {
+        if (reel?.motionTween == null || !reel.motionTween.IsActive() ||
+            reel.motionBasePixelsPerSecond <= 0f)
+        {
+            return;
+        }
+
+        float targetPixelsPerSecond = spinSpeed == SpinSpeed.Normal
+            ? normalReelSpeed
+            : fastReelSpeed;
+        float anticipationMultiplier = reel.isAnticipating
+            ? Mathf.Max(1f, scatterAnticipationSpeedMultiplier)
+            : 1f;
+        reel.motionTween.timeScale = Mathf.Max(
+            0.01f,
+            targetPixelsPerSecond / reel.motionBasePixelsPerSecond * anticipationMultiplier);
+    }
+
+    private SpinSpeed GetEffectiveStopSpeed()
+    {
+        return stopSpinRequested ? SpinSpeed.QuickSpin : spinSpeed;
+    }
+
+    private static float GetStopTimingScale(SpinSpeed speed)
+    {
+        switch (speed)
+        {
+            case SpinSpeed.QuickSpin:
+                return 0.35f;
+            case SpinSpeed.Turbo:
+                return 0.55f;
+            default:
+                return 1f;
+        }
+    }
+
+    private float GetReelStopInterval(SpinSpeed speed)
+    {
+        switch (speed)
+        {
+            case SpinSpeed.QuickSpin:
+                return quickReelStopInterval;
+            case SpinSpeed.Turbo:
+                return turboReelStopInterval;
+            default:
+                return normalReelStopInterval;
+        }
+    }
+
+    private IEnumerator WaitForSpeedAdjustedStopDelay(float delay, SpinSpeed scheduledSpeed)
+    {
+        float remainingDelay = Mathf.Max(0f, delay);
+        float scheduledInterval = GetReelStopInterval(scheduledSpeed);
+        while (remainingDelay > 0f)
+        {
+            float currentInterval = GetReelStopInterval(GetEffectiveStopSpeed());
+            if (currentInterval <= 0f)
+            {
+                yield break;
+            }
+
+            float progressMultiplier = scheduledInterval > 0f
+                ? scheduledInterval / currentInterval
+                : GetStopTimingScale(scheduledSpeed) /
+                    GetStopTimingScale(GetEffectiveStopSpeed());
+            remainingDelay -= Time.unscaledDeltaTime * Mathf.Max(0.01f, progressMultiplier);
+            yield return null;
         }
     }
 
@@ -1911,7 +1993,10 @@ public class SlotBehaviour : MonoBehaviour
     private void StartReelMotion(ReelRuntime reel)
     {
         reel.motionTween?.Kill();
+        reel.stopTween?.Kill();
+        reel.stopTween = null;
         reel.transform.anchoredPosition = reel.restingPosition;
+        reel.isAnticipating = false;
         reel.completedCycles = 0;
 
         int visibleRows = GetRowCount();
@@ -1944,12 +2029,13 @@ public class SlotBehaviour : MonoBehaviour
 
         bool quickStop = stopSpinRequested || spinSpeed == SpinSpeed.QuickSpin;
         bool turboStop = !quickStop && spinSpeed == SpinSpeed.Turbo;
-        float timingScale = quickStop ? 0.35f : turboStop ? 0.55f : 1f;
-        float stopInterval = quickStop
-            ? quickReelStopInterval
+        SpinSpeed scheduledStopSpeed = quickStop
+            ? SpinSpeed.QuickSpin
             : turboStop
-                ? turboReelStopInterval
-                : normalReelStopInterval;
+                ? SpinSpeed.Turbo
+                : SpinSpeed.Normal;
+        float timingScale = GetStopTimingScale(scheduledStopSpeed);
+        float stopInterval = GetReelStopInterval(scheduledStopSpeed);
         float overshoot = stopOvershootDistance * timingScale;
         float overshootDuration = stopOvershootDuration * timingScale;
         float settleDuration = stopSettleDuration * timingScale;
@@ -1974,6 +2060,7 @@ public class SlotBehaviour : MonoBehaviour
                 reelIndex,
                 resultMatrix[reelIndex],
                 nextReelDelay,
+                scheduledStopSpeed,
                 anticipationDuration,
                 quickStop,
                 overshoot,
@@ -2011,6 +2098,7 @@ public class SlotBehaviour : MonoBehaviour
         int reelIndex,
         List<int> resultColumn,
         float delay,
+        SpinSpeed scheduledStopSpeed,
         float anticipationDuration,
         bool quickStop,
         float overshoot,
@@ -2020,15 +2108,19 @@ public class SlotBehaviour : MonoBehaviour
     {
         if (delay > 0f)
         {
-            yield return new WaitForSecondsRealtime(delay);
+            yield return WaitForSpeedAdjustedStopDelay(delay, scheduledStopSpeed);
         }
 
         ReelRuntime reel = reels[reelIndex];
         if (anticipationDuration > 0f)
         {
-            yield return PlayScatterAnticipation(reelIndex, anticipationDuration);
+            yield return PlayScatterAnticipation(
+                reelIndex,
+                anticipationDuration,
+                GetStopTimingScale(scheduledStopSpeed));
         }
 
+        reel.isAnticipating = false;
         reel.motionTween?.Kill();
         reel.motionTween = null;
 
@@ -2049,8 +2141,14 @@ public class SlotBehaviour : MonoBehaviour
                 .DOAnchorPos(reel.restingPosition, settleDuration)
                 .SetEase(Ease.InOutQuad));
 
+        reel.stopTween = stopSequence;
+        reel.stopTweenBaseTimingScale = GetStopTimingScale(scheduledStopSpeed);
+        stopSequence.timeScale = Mathf.Max(
+            0.01f,
+            reel.stopTweenBaseTimingScale / GetStopTimingScale(GetEffectiveStopSpeed()));
         activeTweens.Add(stopSequence);
         yield return stopSequence.WaitForCompletion();
+        reel.stopTween = null;
 
         audioManager?.PlayReelStop();
         if (gameConfig != null && resultColumn != null && resultColumn.Contains(gameConfig.scatterSymbolId))
@@ -2082,7 +2180,10 @@ public class SlotBehaviour : MonoBehaviour
         return scatterCount;
     }
 
-    private IEnumerator PlayScatterAnticipation(int reelIndex, float duration)
+    private IEnumerator PlayScatterAnticipation(
+        int reelIndex,
+        float duration,
+        float initialTimingScale)
     {
         if (duration <= 0f || reelIndex <= 0 || reelIndex >= reels.Count)
         {
@@ -2091,12 +2192,10 @@ public class SlotBehaviour : MonoBehaviour
 
         ReelRuntime reel = reels[reelIndex];
         Tween reelMotion = reel.motionTween;
-        float previousTimeScale = reelMotion != null && reelMotion.IsActive()
-            ? reelMotion.timeScale
-            : 1f;
+        reel.isAnticipating = true;
         if (reelMotion != null && reelMotion.IsActive())
         {
-            reelMotion.timeScale = previousTimeScale * Mathf.Max(1f, scatterAnticipationSpeedMultiplier);
+            ApplyReelMotionSpeed(reel);
         }
 
         audioManager?.PlayAnticipation();
@@ -2124,20 +2223,23 @@ public class SlotBehaviour : MonoBehaviour
             }
         }
 
-        float anticipationEndsAt = Time.realtimeSinceStartup + duration;
+        float remainingDuration = duration;
         float fadeDuration = Mathf.Min(scatterAnticipationSoundFadeDuration, duration);
-        float anticipationFadeStartsAt = anticipationEndsAt - fadeDuration;
         bool isSoundFading = false;
         while (!shuttingDown && !stopSpinRequested &&
-               Time.realtimeSinceStartup < anticipationEndsAt)
+               remainingDuration > 0f)
         {
             if (!isSoundFading && fadeDuration > 0f &&
-                Time.realtimeSinceStartup >= anticipationFadeStartsAt)
+                remainingDuration <= fadeDuration)
             {
                 isSoundFading = true;
                 audioManager?.FadeOutAnticipation(fadeDuration);
             }
 
+            float currentTimingScale = GetStopTimingScale(GetEffectiveStopSpeed());
+            remainingDuration -= Time.unscaledDeltaTime * Mathf.Max(
+                0.01f,
+                initialTimingScale / currentTimingScale);
             yield return null;
         }
 
@@ -2154,9 +2256,10 @@ public class SlotBehaviour : MonoBehaviour
         }
 
         StopScatterAnticipationVisual(reelIndex);
+        reel.isAnticipating = false;
         if (reelMotion != null && reelMotion.IsActive())
         {
-            reelMotion.timeScale = previousTimeScale;
+            ApplyReelMotionSpeed(reel);
         }
     }
 
@@ -3078,7 +3181,8 @@ public class SlotBehaviour : MonoBehaviour
         float animationDuration,
         List<Sprite> overrideFrames = null,
         bool hideStaticSymbolWithAlpha = false,
-        bool allowOnExpandedSantaColumn = false)
+        bool allowOnExpandedSantaColumn = false,
+        bool renderAboveBlackScreen = false)
     {
         if (!allowOnExpandedSantaColumn && activeExpandedSantaColumns.Contains(columnIndex))
         {
@@ -3114,6 +3218,7 @@ public class SlotBehaviour : MonoBehaviour
             return false;
         }
 
+        SetExtraGiftWildAnimationOverlay(runtime, renderAboveBlackScreen);
         SetWinAnimationColumnActive(columnIndex, true);
         if (freeSpinWinBoxesRoot != null)
         {
@@ -3164,6 +3269,7 @@ public class SlotBehaviour : MonoBehaviour
 
         WinningSymbolAnimationRuntime runtime = winningSymbolAnimations[columnIndex][rowIndex];
         runtime?.animation?.StopAnimation();
+        SetExtraGiftWildAnimationOverlay(runtime, false);
         if (runtime?.root != null)
         {
             runtime.root.SetActive(false);
@@ -3175,6 +3281,60 @@ public class SlotBehaviour : MonoBehaviour
             runtime.staticSymbol.color = new Color(color.r, color.g, color.b, 1f);
             runtime.staticSymbol.enabled = true;
         }
+    }
+
+    private static void SetExtraGiftWildAnimationOverlay(
+        WinningSymbolAnimationRuntime runtime,
+        bool isActive)
+    {
+        if (runtime?.root == null)
+        {
+            return;
+        }
+
+        if (!isActive)
+        {
+            if (runtime.overlayCanvas == null || !runtime.overlayCanvasStateCached)
+            {
+                return;
+            }
+
+            runtime.overlayCanvas.enabled = runtime.overlayCanvasOriginalEnabled;
+            runtime.overlayCanvas.overrideSorting = runtime.overlayCanvasOriginalOverrideSorting;
+            runtime.overlayCanvas.sortingLayerID = runtime.overlayCanvasOriginalSortingLayerId;
+            runtime.overlayCanvas.sortingOrder = runtime.overlayCanvasOriginalSortingOrder;
+            runtime.overlayCanvasStateCached = false;
+            return;
+        }
+
+        Canvas parentCanvas = runtime.root.transform.parent != null
+            ? runtime.root.transform.parent.GetComponentInParent<Canvas>()
+            : null;
+        Canvas overlayCanvas = runtime.root.GetComponent<Canvas>();
+        if (overlayCanvas == null)
+        {
+            overlayCanvas = runtime.root.AddComponent<Canvas>();
+        }
+
+        runtime.overlayCanvas = overlayCanvas;
+        if (!runtime.overlayCanvasStateCached)
+        {
+            runtime.overlayCanvasOriginalEnabled = overlayCanvas.enabled;
+            runtime.overlayCanvasOriginalOverrideSorting = overlayCanvas.overrideSorting;
+            runtime.overlayCanvasOriginalSortingLayerId = overlayCanvas.sortingLayerID;
+            runtime.overlayCanvasOriginalSortingOrder = overlayCanvas.sortingOrder;
+            runtime.overlayCanvasStateCached = true;
+        }
+
+        int parentSortingOrder = parentCanvas != null ? parentCanvas.sortingOrder : 0;
+        overlayCanvas.enabled = true;
+        overlayCanvas.overrideSorting = true;
+        if (parentCanvas != null)
+        {
+            overlayCanvas.sortingLayerID = parentCanvas.sortingLayerID;
+        }
+        overlayCanvas.sortingOrder = Mathf.Clamp(parentSortingOrder + 1000, -32768, 32767);
+        runtime.root.transform.SetAsLastSibling();
     }
 
     private void RefreshWinAnimationRootVisibility()
@@ -3509,6 +3669,7 @@ public class SlotBehaviour : MonoBehaviour
                     runtime.animation.StopAnimation();
                 }
 
+                SetExtraGiftWildAnimationOverlay(runtime, false);
                 if (runtime?.root != null)
                 {
                     runtime.root.SetActive(false);
@@ -3824,6 +3985,9 @@ public class SlotBehaviour : MonoBehaviour
         {
             reel.motionTween?.Kill();
             reel.motionTween = null;
+            reel.stopTween?.Kill();
+            reel.stopTween = null;
+            reel.isAnticipating = false;
             if (restorePositions && reel.transform != null)
             {
                 reel.transform.anchoredPosition = reel.restingPosition;

@@ -53,7 +53,7 @@ public sealed class AudioManager : MonoBehaviour
 
     internal event Action SettingsChanged;
 
-    internal float MusicVolume { get; private set; } = 1f;
+    internal float MusicVolume { get; private set; } = 0.5f;
     internal float SfxVolume { get; private set; } = 1f;
     internal bool MusicEnabled { get; private set; } = true;
     internal bool SfxEnabled { get; private set; } = true;
@@ -335,7 +335,7 @@ public sealed class AudioManager : MonoBehaviour
 
     private void LoadSettings()
     {
-        MusicVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(MusicVolumeKey, 1f));
+        MusicVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(MusicVolumeKey, 0.5f));
         SfxVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(SfxVolumeKey, 1f));
         MusicEnabled = PlayerPrefs.GetInt(MusicEnabledKey, 1) != 0;
         SfxEnabled = PlayerPrefs.GetInt(SfxEnabledKey, 1) != 0;
