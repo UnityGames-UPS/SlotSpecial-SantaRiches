@@ -94,24 +94,42 @@ public class SocketIOManager : MonoBehaviour
 
     void ReceiveAuthToken(string jsonData)
     {
-        if (socketSetupStarted)
+        Debug.Log("[SocketIO] Auth received");
+
+        AuthTokenData authData;
+        try
         {
-            Debug.LogWarning("[SocketIO] Duplicate auth token ignored");
+            authData = JsonUtility.FromJson<AuthTokenData>(jsonData);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogError($"[SocketIO] Auth payload could not be parsed: {exception.Message}");
             return;
         }
 
-        Debug.Log($"[SocketIO] Auth received");
+        if (authData == null)
+        {
+            Debug.LogError("[SocketIO] Auth payload was empty or invalid.");
+            return;
+        }
 
         try
         {
-            var authData = JsonUtility.FromJson<AuthTokenData>(jsonData);
-            authToken = authData.cookie;
-            socketURL = authData.socketURL;
+            string incomingToken = authData.cookie;
+            string incomingSocketURL = authData.socketURL;
+            string incomingNameSpace = !string.IsNullOrEmpty(authData.nameSpace) ? authData.nameSpace : nameSpace;
 
-            if (!string.IsNullOrEmpty(authData.nameSpace))
+            // If socket is already initialized and the incoming token matches our current token, bypass re-initialization
+            if (socketSetupStarted && authToken == incomingToken && socketURL == incomingSocketURL)
             {
-                nameSpace = authData.nameSpace;
+                Debug.LogWarning("[SocketIO] Matching auth token received, bypassing re-initialization.");
+                return;
             }
+
+            Debug.Log("[SocketIO] New or updated auth token received. Cleaning up old socket and re-initializing.");
+            authToken = incomingToken;
+            socketURL = incomingSocketURL;
+            nameSpace = incomingNameSpace;
 
             InitializeSocket();
         }
@@ -123,24 +141,21 @@ public class SocketIOManager : MonoBehaviour
 
     private void InitializeSocket()
     {
-        if (socketSetupStarted) return;
         socketSetupStarted = true;
+        StopPingRoutine();
 
         // Defensive: tear down any prior manager before building a new one
         if (socketManager != null)
         {
-            try
-            {
-                socketManager.Close();
-            }
-            catch (Exception exception)
-            {
-                Debug.LogWarning($"[SocketIO] Previous socket cleanup failed: {exception.Message}");
-            }
+            try { socketManager.Close(); } catch { }
             socketManager = null;
         }
 
-        SetRaycastBlocker(true);
+        isInitialized = false;
+        isConnected = false;
+        isExiting = false;
+
+        if (RaycastBlocker) RaycastBlocker.SetActive(true);
 
         SocketOptions options = new SocketOptions
         {
@@ -175,6 +190,34 @@ public class SocketIOManager : MonoBehaviour
         gameSocket.On<string>("jackpot:sync", OnJackpotSyncReceived);
 
         socketManager.Open();
+    }
+
+    private static string NormalizeNamespace(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().Trim('/');
+    }
+
+    private static bool TryCreateSocketUri(string value, out Uri uri)
+    {
+        uri = null;
+        if (string.IsNullOrWhiteSpace(value)
+            || !Uri.TryCreate(value.Trim(), UriKind.Absolute, out Uri parsedUri))
+        {
+            return false;
+        }
+
+        bool supportedScheme = string.Equals(parsedUri.Scheme, "http", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(parsedUri.Scheme, "https", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(parsedUri.Scheme, "ws", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(parsedUri.Scheme, "wss", StringComparison.OrdinalIgnoreCase);
+
+        if (!supportedScheme)
+        {
+            return false;
+        }
+
+        uri = parsedUri;
+        return true;
     }
 
     #endregion
@@ -774,7 +817,7 @@ public class SocketIOManager : MonoBehaviour
         exitRoutine = null;
     }
 
-    private void CloseSocketConnectionSafely(string context)
+    private void CloseSocketConnectionSafely(string context, bool suppressDisconnectCallbacks = false)
     {
         SocketManager managerToClose = socketManager;
         Socket socketToClose = gameSocket;
@@ -783,6 +826,11 @@ public class SocketIOManager : MonoBehaviour
 
         try
         {
+            if (suppressDisconnectCallbacks && socketToClose != null)
+            {
+                socketToClose.Off();
+            }
+
             if (managerToClose != null)
             {
                 // SocketManager.Close disconnects all namespaces, releases its

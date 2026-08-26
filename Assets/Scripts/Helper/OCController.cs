@@ -71,7 +71,11 @@ public class OCController : MonoBehaviour
     [SerializeField] private float transitionDuration = 0.2f;
 
     private List<Tween> activeTweens = new List<Tween>();
+    private Tween santaPositionTween;
     private bool usesInstanceOrientationEvent;
+    private bool isMobilePortraitLayout;
+    private bool keepLandscapeSantaOutForExtraGift;
+    private float landscapeSantaExtraGiftExitOffsetX;
     private Vector2 landscapeSantaPosition;
     private Vector2 landscapeSantaSize;
     private Vector3 landscapeSantaScale;
@@ -157,6 +161,7 @@ public class OCController : MonoBehaviour
         KillActiveTweens();
 
         bool isMobilePortrait = (mode == OrientationChange.OrientationMode.MobilePortrait);
+        isMobilePortraitLayout = isMobilePortrait;
 
         // 1. Toggle Landscape vs Portrait Panel Objects
         if (landscapePanelObject != null)
@@ -324,6 +329,49 @@ public class OCController : MonoBehaviour
             }
         }
         activeTweens.Clear();
+        santaPositionTween = null;
+    }
+
+    internal Tween SetLandscapeSantaHiddenForExtraGift(
+        bool hidden,
+        float exitOffsetX,
+        float duration,
+        Ease ease)
+    {
+        keepLandscapeSantaOutForExtraGift = hidden;
+        landscapeSantaExtraGiftExitOffsetX = exitOffsetX;
+
+        if (santaObject == null || isMobilePortraitLayout)
+        {
+            return null;
+        }
+
+        CacheLandscapeSantaState();
+        if (!hasCachedLandscapeSantaState)
+        {
+            return null;
+        }
+
+        Vector2 targetPosition = landscapeSantaPosition;
+        if (hidden)
+        {
+            targetPosition += Vector2.right * landscapeSantaExtraGiftExitOffsetX;
+        }
+
+        santaPositionTween?.Kill();
+        santaPositionTween = null;
+        if (duration <= 0f)
+        {
+            santaObject.anchoredPosition = targetPosition;
+            return null;
+        }
+
+        santaPositionTween = santaObject
+            .DOAnchorPos(targetPosition, duration)
+            .SetEase(ease)
+            .SetUpdate(true);
+        activeTweens.Add(santaPositionTween);
+        return santaPositionTween;
     }
 
     private void CacheLandscapeSantaState()
@@ -444,12 +492,29 @@ public class OCController : MonoBehaviour
         UpdateSantaDrawOrder(isMobilePortrait);
 
         Vector2 targetPosition = isMobilePortrait ? portraitSantaPosition : landscapeSantaPosition;
+        bool keepSantaOut = !isMobilePortrait && keepLandscapeSantaOutForExtraGift;
+        if (keepSantaOut)
+        {
+            targetPosition += Vector2.right * landscapeSantaExtraGiftExitOffsetX;
+        }
         Vector2 targetSize = isMobilePortrait ? portraitSantaSize : landscapeSantaSize;
         Vector3 targetScale = isMobilePortrait ? portraitSantaScale : landscapeSantaScale;
 
         if (transitionDuration > 0f)
         {
-            activeTweens.Add(santaObject.DOAnchorPos(targetPosition, transitionDuration).SetEase(Ease.OutCubic));
+            santaPositionTween?.Kill();
+            santaPositionTween = null;
+            if (keepSantaOut)
+            {
+                santaObject.anchoredPosition = targetPosition;
+            }
+            else
+            {
+                santaPositionTween = santaObject
+                    .DOAnchorPos(targetPosition, transitionDuration)
+                    .SetEase(Ease.OutCubic);
+                activeTweens.Add(santaPositionTween);
+            }
             activeTweens.Add(santaObject.DOSizeDelta(targetSize, transitionDuration).SetEase(Ease.OutCubic));
             activeTweens.Add(santaObject.DOScale(targetScale, transitionDuration).SetEase(Ease.OutCubic));
         }

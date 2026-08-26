@@ -43,6 +43,7 @@ public sealed class ExtraGiftWildController : MonoBehaviour
     private Tween sceneSantaTween;
     private Vector2 sceneSantaHomePosition;
     private bool hasSceneSantaHomePosition;
+    private OCController orientationController;
     private int activeGiftFlights;
     private bool isPresenting;
 
@@ -58,6 +59,7 @@ public sealed class ExtraGiftWildController : MonoBehaviour
     private void Awake()
     {
         ResolveReferences();
+        ResolveOrientationController();
         StopSantaAnimation();
     }
 
@@ -99,11 +101,18 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         SetBlackScreenActive(false);
         bool moveSceneSanta = !IsPortraitMode();
 
-        Tween santaExitTween = moveSceneSanta
-            ? MoveSceneSantaTo(
-                sceneSantaHomePosition + Vector2.right * sceneSantaExitOffsetX,
+        ResolveOrientationController();
+        Tween santaExitTween = orientationController != null
+            ? orientationController.SetLandscapeSantaHiddenForExtraGift(
+                true,
+                sceneSantaExitOffsetX,
+                sceneSantaMoveDuration,
                 Ease.InQuad)
-            : null;
+            : moveSceneSanta
+                ? MoveSceneSantaTo(
+                    sceneSantaHomePosition + Vector2.right * sceneSantaExitOffsetX,
+                    Ease.InQuad)
+                : null;
         if (santaExitTween != null)
         {
             yield return santaExitTween.WaitForCompletion();
@@ -146,7 +155,19 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         {
             onSleighExited?.Invoke();
             SetBlackScreenActive(false);
-            if (moveSceneSanta)
+            if (orientationController != null)
+            {
+                Tween santaReturnTween = orientationController.SetLandscapeSantaHiddenForExtraGift(
+                    false,
+                    sceneSantaExitOffsetX,
+                    sceneSantaMoveDuration,
+                    Ease.OutQuad);
+                if (santaReturnTween != null)
+                {
+                    yield return santaReturnTween.WaitForCompletion();
+                }
+            }
+            else if (moveSceneSanta)
             {
                 yield return MoveSceneSantaHome();
             }
@@ -567,6 +588,17 @@ public sealed class ExtraGiftWildController : MonoBehaviour
 
     private void RestoreSceneSantaImmediately()
     {
+        ResolveOrientationController();
+        if (orientationController != null)
+        {
+            orientationController.SetLandscapeSantaHiddenForExtraGift(
+                false,
+                sceneSantaExitOffsetX,
+                0f,
+                Ease.OutQuad);
+            return;
+        }
+
         if (sceneSanta == null || !hasSceneSantaHomePosition)
         {
             return;
@@ -659,6 +691,14 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         {
             sceneSantaHomePosition = sceneSanta.anchoredPosition;
             hasSceneSantaHomePosition = true;
+        }
+    }
+
+    private void ResolveOrientationController()
+    {
+        if (orientationController == null)
+        {
+            orientationController = UnityEngine.Object.FindFirstObjectByType<OCController>();
         }
     }
 }
