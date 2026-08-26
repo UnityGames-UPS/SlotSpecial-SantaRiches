@@ -1,38 +1,8 @@
 mergeInto(LibraryManager.library, {
-    SendLogToReactNative: function (messagePtr) {
-        var message = UTF8ToString(messagePtr);
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(message);
-        } 
-    },
-
     SendPostMessage: function(messagePtr) {
       var message = UTF8ToString(messagePtr);
-      if(window.ReactNativeWebView){
-        if(message == "authToken"){
-          window.ReactNativeWebView.postMessage("if message is authtoken");
-          var injectedObjectJson = window.ReactNativeWebView.injectedObjectJson();
-          var injectedObj = JSON.parse(injectedObjectJson);
-
-          window.ReactNativeWebView.postMessage('Injected obj : ' + injectedObjectJson);
-          
-          var combinedData = JSON.stringify({
-              socketURL: injectedObj.socketURL.trim(),
-              cookie: injectedObj.token.trim(),
-              nameSpace: injectedObj.nameSpace ? injectedObj.nameSpace.trim() : ""
-          });
-
-          if (typeof SendMessage === 'function') {
-            SendMessage('SocketManager', 'ReceiveAuthToken', combinedData);
-          }
-        }
-        window.ReactNativeWebView.postMessage(message);
-      }
-      else if(window.parent){
-        if(window.parent.dispatchReactUnityEvent){
-          console.log("Inside window parent");
-          window.parent.dispatchReactUnityEvent(message); 
-        }
+      if (typeof window !== "undefined" && window.parent && typeof window.parent.postMessage === "function") {
+        window.parent.postMessage({ type: message, data: {} }, "*");
       }
     },
 
@@ -232,5 +202,57 @@ mergeInto(LibraryManager.library, {
         document.addEventListener('webkitvisibilitychange', window._unityVisibilityCallback);
         window.addEventListener('blur',  window._unityWindowBlurCallback);
         window.addEventListener('focus', window._unityWindowFocusCallback);
+    },
+
+    RegisterResizeListener: function(gameObjectNamePtr, methodNamePtr) {
+      var gameObjectName = UTF8ToString(gameObjectNamePtr);
+      var methodName = UTF8ToString(methodNamePtr);
+
+      function sendDimensionsToUnity() {
+        try {
+          var vv = window.visualViewport;
+          var w = Math.round(vv ? vv.width : window.innerWidth);
+          var h = Math.round(vv ? vv.height : window.innerHeight);
+          var dimensions = w + ',' + h;
+          if (typeof SendMessage === 'function') {
+            SendMessage(gameObjectName, methodName, dimensions);
+          } else if (typeof unityInstance !== 'undefined' && unityInstance && unityInstance.SendMessage) {
+            unityInstance.SendMessage(gameObjectName, methodName, dimensions);
+          }
+        } catch (err) {
+          console.error('[JS] resize send failed:', err);
+        }
+      }
+
+      if (window._unityResizeCallback) {
+        window.removeEventListener('resize', window._unityResizeCallback);
+        window.removeEventListener('orientationchange', window._unityResizeCallback);
+        if (window.visualViewport) window.visualViewport.removeEventListener('resize', window._unityResizeCallback);
+      }
+      window._unityResizeCallback = sendDimensionsToUnity;
+      window.addEventListener('resize', window._unityResizeCallback);
+      window.addEventListener('orientationchange', window._unityResizeCallback);
+      if (window.visualViewport) window.visualViewport.addEventListener('resize', window._unityResizeCallback);
+
+      sendDimensionsToUnity();
+    },
+
+    RegisterTokenListener: function(gameObjectNamePtr, methodNamePtr) {
+      var gameObjectName = UTF8ToString(gameObjectNamePtr);
+      var methodName = UTF8ToString(methodNamePtr);
+
+      if (window._unityTokenCallback) {
+        window.removeEventListener('message', window._unityTokenCallback);
+      }
+      window._unityTokenCallback = function(event) {
+        if (!event.data || event.data.type !== 'TokenReceived') return;
+        var json = JSON.stringify(event.data.data);
+        if (typeof SendMessage === 'function') {
+          SendMessage(gameObjectName, methodName, json);
+        } else if (typeof unityInstance !== 'undefined' && unityInstance && unityInstance.SendMessage) {
+          unityInstance.SendMessage(gameObjectName, methodName, json);
+        }
+      };
+      window.addEventListener('message', window._unityTokenCallback);
     }
 });

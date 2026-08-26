@@ -6,30 +6,22 @@
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
   <title>{{{ PRODUCT_NAME }}}</title>
   <style>
-    html,
     body,
-    #unity-container,
-    #unity-canvas {
+    html {
       margin: 0;
       padding: 0;
-      width: 100%;
-      height: 100%;
       overflow: hidden;
+      height: 100%;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       background-color: black;
     }
 
-    body {
-      position: fixed;
-      inset: 0;
-    }
-
-    #unity-container {
-      position: fixed;
-      inset: 0;
-    }
-
     #unity-canvas {
-      display: block;
+      height: 100%;
+      width: 100%;
     }
 
     #loading-screen {
@@ -42,13 +34,22 @@
 
 <body>
 
-  <div id="unity-container">
-    <canvas id="unity-canvas" tabindex="-1"></canvas>
-  </div>
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
   <script>
-    const container = document.querySelector("#unity-container");
     const canvas = document.querySelector("#unity-canvas");
+    var unityInstance = null;   // captured on load; jslib listeners use it as a SendMessage fallback
+    var lastProgressSent = -1;
 
+    // Forward loader progress to the host; loading-complete is signalled by Unity's "OnEnter".
+    function sendProgressToPlatform(progressValue) {
+      var percentage = Math.round(progressValue * 100);
+      if (percentage === lastProgressSent) return;
+      lastProgressSent = percentage;
+      if (window.parent) {
+        window.parent.postMessage({ type: "UnityLoaderProgress", progress: percentage }, "*");
+      }
+    }
+    // Pin the canvas to the visible viewport; Unity (OrientationChange) owns aspect ratio & rotation.
     function resizeCanvas() {
       // visualViewport is the accurate visible area on iOS; fall back to innerWidth/Height.
       var vv = window.visualViewport;
@@ -59,25 +60,14 @@
       document.documentElement.style.height = h + "px";
       document.body.style.width = w + "px";
       document.body.style.height = h + "px";
-      container.style.width = w + "px";
-      container.style.height = h + "px";
       canvas.style.width = w + "px";
       canvas.style.height = h + "px";
     }
 
-    function scheduleCanvasResize() {
-      resizeCanvas();
-      window.requestAnimationFrame(resizeCanvas);
-    }
-
     window.addEventListener('resize', resizeCanvas);
-    window.addEventListener('orientationchange', scheduleCanvasResize);
-    document.addEventListener('fullscreenchange', scheduleCanvasResize);
-    document.addEventListener('webkitfullscreenchange', scheduleCanvasResize);
-    document.addEventListener('mozfullscreenchange', scheduleCanvasResize);
-    document.addEventListener('MSFullscreenChange', scheduleCanvasResize);
+    window.addEventListener('orientationchange', resizeCanvas);
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', scheduleCanvasResize);
+      window.visualViewport.addEventListener('resize', resizeCanvas);
       window.visualViewport.addEventListener('scroll', function () { window.scrollTo(0, 0); });
     }
     // Scroll-lock: CSS touch-action alone won't stop iOS pinch-pan; non-passive touchmove does.
@@ -110,26 +100,21 @@
       productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
     };
 
-
     var script = document.createElement("script");
     script.src = loaderUrl;
     script.onload = () => {
       createUnityInstance(canvas, config, (progress) => {
-      }).then((unityInstance) => {
-        window.unityInstance = unityInstance;
-        if (window.__unityFullscreenBridge
-          && typeof window.__unityFullscreenBridge.sendCurrentState === 'function') {
-          window.__unityFullscreenBridge.sendCurrentState();
-        }
-        scheduleCanvasResize();
+        sendProgressToPlatform(progress);
+      }).then((instance) => {
+        unityInstance = instance;
+        resizeCanvas();
       }).catch((message) => {
         alert(message);
       });
     };
-
     document.body.appendChild(script);
-    window.addEventListener('load', scheduleCanvasResize);
   </script>
+  <!-- Inbound host messages (TokenReceived) are handled by CustomJsLib.jslib, registered from C#. -->
   <script>
     window.focus();
   </script>
