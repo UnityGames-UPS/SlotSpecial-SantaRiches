@@ -363,9 +363,12 @@ public sealed class ExtraGiftWildController : MonoBehaviour
         projectile.SetParent(parent, false);
         projectile.SetAsLastSibling();
         projectile.sizeDelta = giftSize;
-        projectile.position = giftSpawnPoint != null
-            ? giftSpawnPoint.position
-            : movingRect.position;
+        Canvas.ForceUpdateCanvases();
+        RectTransform spawnPoint = giftSpawnPoint != null
+            ? giftSpawnPoint
+            : movingRect;
+        Vector3 startPosition = parent.InverseTransformPoint(spawnPoint.position);
+        projectile.localPosition = startPosition;
         projectile.localScale = Vector3.one * giftStartScale;
 
         Image projectileImage = projectileObject.GetComponent<Image>();
@@ -375,8 +378,7 @@ public sealed class ExtraGiftWildController : MonoBehaviour
 
         activeGiftProjectiles.Add(projectile);
         float travelDuration = Mathf.Max(0.01f, giftTravelDuration);
-        Vector3 startPosition = projectile.position;
-        Vector3 destination = target.position;
+        Vector3 destination = parent.InverseTransformPoint(target.position);
         float sideDirection = Mathf.Sign(destination.x - startPosition.x);
         if (Mathf.Approximately(sideDirection, 0f))
         {
@@ -393,7 +395,12 @@ public sealed class ExtraGiftWildController : MonoBehaviour
                 value =>
                 {
                     pathProgress = value;
-                    projectile.position = EvaluateSingleArc(
+                    if (target != null)
+                    {
+                        destination = parent.InverseTransformPoint(target.position);
+                    }
+
+                    projectile.localPosition = EvaluateSingleArc(
                         startPosition,
                         destination,
                         value,
@@ -416,7 +423,12 @@ public sealed class ExtraGiftWildController : MonoBehaviour
 
         if (projectile != null)
         {
-            projectile.position = destination;
+            if (target != null)
+            {
+                destination = parent.InverseTransformPoint(target.position);
+            }
+
+            projectile.localPosition = destination;
             projectile.localScale = Vector3.one;
         }
 

@@ -7,20 +7,9 @@ using System.Text;
 using DG.Tweening;
 using TMPro;
 using UnityEngine;
-using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.Serialization;
 using UnityEngine.UI;
-
-[Serializable]
-internal sealed class SpinResultEvent : UnityEvent<SpinResult>
-{
-}
-
-[Serializable]
-internal sealed class SymbolSelectedEvent : UnityEvent<int, int, int>
-{
-}
 
 /// <summary>
 /// Owns the complete visual slot flow. The server remains authoritative for the
@@ -172,13 +161,6 @@ public class SlotBehaviour : MonoBehaviour
 
     [Header("Symbol Information Card")]
     [SerializeField] private SymbolInfoCard symbolInfoCard;
-
-    [Header("Behaviour Events (Optional)")]
-    [SerializeField] private UnityEvent onSpinStarted = new UnityEvent();
-    [SerializeField] private SpinResultEvent onSpinStopped = new SpinResultEvent();
-    [SerializeField] private UnityEvent onSpinRequestFailed = new UnityEvent();
-    [SerializeField] private SymbolSelectedEvent onSymbolSelected = new SymbolSelectedEvent();
-    [SerializeField] private UnityEvent onSymbolInfoDismissed = new UnityEvent();
 
     internal event Action<SpinResult> RoundStopped;
     internal event Action<SpinResult> RequiredPresentationCompleted;
@@ -1066,7 +1048,6 @@ public class SlotBehaviour : MonoBehaviour
     internal void HideSymbolInfoCard()
     {
         symbolInfoCard?.HideCard();
-        onSymbolInfoDismissed?.Invoke();
     }
 
     internal void OnBetChanged()
@@ -1092,7 +1073,6 @@ public class SlotBehaviour : MonoBehaviour
         if (symbolId >= 0)
         {
             symbolInfoCard?.ShowCard(symbolId, column, row, symbolRect, gameManager);
-            onSymbolSelected?.Invoke(symbolId, column, row);
         }
     }
 
@@ -1346,7 +1326,7 @@ public class SlotBehaviour : MonoBehaviour
         if (extraGiftWildController != null && extraGiftWildController.CanPresent)
         {
             List<RectTransform> targets = validGiftWilds
-                .Select(GetExtraGiftWildAnimationTarget)
+                .Select(GetExtraGiftWildTarget)
                 .ToList();
             Sprite giftSprite = GetSymbolSprite(gameConfig.giftWildSymbolId);
             yield return extraGiftWildController.PlayPresentation(
@@ -1408,29 +1388,6 @@ public class SlotBehaviour : MonoBehaviour
 
         Image target = Tempimages[position.col].slotImages[position.row];
         return target != null ? target.rectTransform : null;
-    }
-
-    private RectTransform GetExtraGiftWildAnimationTarget(ServerExtraGiftWild giftWild)
-    {
-        ServerPosition position = giftWild?.position;
-        if (position != null &&
-            position.col >= 0 && position.col < winningSymbolAnimations.Count &&
-            position.row >= 0 && position.row < winningSymbolAnimations[position.col].Count)
-        {
-            WinningSymbolAnimationRuntime runtime =
-                winningSymbolAnimations[position.col][position.row];
-            if (runtime?.renderer != null)
-            {
-                return runtime.renderer.rectTransform;
-            }
-
-            if (runtime?.root != null)
-            {
-                return runtime.root.transform as RectTransform;
-            }
-        }
-
-        return GetExtraGiftWildTarget(giftWild);
     }
 
     private IEnumerator PlayExtraGiftWildLandingBatch(
@@ -1673,8 +1630,6 @@ public class SlotBehaviour : MonoBehaviour
         resultReceived = false;
         resultFailed = false;
         pendingResult = null;
-
-        onSpinStarted?.Invoke();
 
         spinRoutine = StartCoroutine(SpinCoroutine());
         return true;
@@ -2000,7 +1955,6 @@ public class SlotBehaviour : MonoBehaviour
         pendingResult = null;
         spinRoutine = null;
         autoplayRoundInProgress = false;
-        onSpinRequestFailed?.Invoke();
         PresentationFailed?.Invoke(reason);
         yield return null;
     }
@@ -2497,7 +2451,6 @@ public class SlotBehaviour : MonoBehaviour
 
         StartResultAnimations(result);
 
-        onSpinStopped?.Invoke(result);
     }
 
     private float GetMinimumSpinTime()

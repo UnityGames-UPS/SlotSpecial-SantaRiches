@@ -27496,7 +27496,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f521a04de7f494272a617b2719edd271, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SocketIOManager
-  testToken: d8d7e09396684f98bfa3ffc48c0f8eb8
+  testToken: 46777fc0df3d4ed2ad4fafbae1a9415c
   gameManager: {fileID: 1336223343}
   uiManager: {fileID: 1858885721}
   popupManager: {fileID: 1282578647}
@@ -32760,21 +32760,6 @@ MonoBehaviour:
   freeSpinSymbolFadeInDuration: 1
   audioManager: {fileID: 2050000003}
   symbolInfoCard: {fileID: 6846384}
-  onSpinStarted:
-    m_PersistentCalls:
-      m_Calls: []
-  onSpinStopped:
-    m_PersistentCalls:
-      m_Calls: []
-  onSpinRequestFailed:
-    m_PersistentCalls:
-      m_Calls: []
-  onSymbolSelected:
-    m_PersistentCalls:
-      m_Calls: []
-  onSymbolInfoDismissed:
-    m_PersistentCalls:
-      m_Calls: []
 --- !u!1 &920706878
 GameObject:
   m_ObjectHideFlags: 0
@@ -38771,7 +38756,7 @@ RectTransform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1131853063}
-  m_LocalRotation: {x: 0, y: 0, z: 0.51224685, w: 0.85883826}
+  m_LocalRotation: {x: 0, y: 0, z: 0.5122468, w: 0.8588383}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -48285,7 +48270,7 @@ RectTransform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1405866546}
-  m_LocalRotation: {x: 0, y: 0, z: -0.51224685, w: 0.85883826}
+  m_LocalRotation: {x: 0, y: 0, z: -0.5122468, w: 0.8588383}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
