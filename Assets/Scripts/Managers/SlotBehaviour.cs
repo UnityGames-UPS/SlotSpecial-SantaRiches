@@ -18,8 +18,6 @@ using UnityEngine.UI;
 /// The controller is wired to the existing SlotManager in MainScene. A runtime
 /// fallback remains for compatibility with scenes that have not been migrated.
 /// </summary>
-[DefaultExecutionOrder(-10000)]
-[DisallowMultipleComponent]
 public class SlotBehaviour : MonoBehaviour
 {
     private const int DefaultReelCount = 5;

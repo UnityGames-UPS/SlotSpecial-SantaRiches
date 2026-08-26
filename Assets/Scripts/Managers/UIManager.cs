@@ -942,19 +942,19 @@ public class UIManager : MonoBehaviour
     }
 
     /// <summary>Called by the browser fullscreen listener with "1" or "0".</summary>
-    public void OnFullscreenChanged(string value)
+    internal void OnFullscreenChanged(string isFullscreen)
     {
-        if (value == "1")
+        if (isFullscreen == "1")
         {
             fullscreenState = true;
         }
-        else if (value == "0")
+        else if (isFullscreen == "0")
         {
             fullscreenState = false;
         }
         else
         {
-            Debug.LogWarning($"[Fullscreen] Ignored invalid browser state '{value}'. Expected '1' or '0'.");
+            Debug.LogWarning($"[Fullscreen] Ignored invalid browser state '{isFullscreen}'. Expected '1' or '0'.");
             return;
         }
 
