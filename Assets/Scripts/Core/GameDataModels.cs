@@ -242,6 +242,19 @@ public class SpinPayload
     public bool isFreeSpin;
 }
 
+[Serializable]
+public class JackpotOpenRequest
+{
+    public string type = "JACKPOT_OPEN";
+    public JackpotOpenPayload payload = new JackpotOpenPayload();
+}
+
+[Serializable]
+public class JackpotOpenPayload
+{
+  public string tier;
+}
+
 #region Santa Riches Initialization Schema
 
 [Serializable]
